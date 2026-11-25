@@ -94,7 +94,9 @@
       <span class="ico">🚗</span><span><div class="t">AUTO-VIGIA</div><div class="d">Controle do veículo</div></span><span class="seta">›</span>
     </a>
   </section>
+  <p class="pixel" id="versao" style="text-align:center;font-size:8px;color:var(--dim);margin-top:24px"></p>
 </main>
+<script src="version.js"></script>
 <script src="auth.js"></script>
 <script>
 (function(){
@@ -143,10 +145,11 @@
 
   // Primeiro uso: sem contas → já abre em "criar conta"
   try { if (!localStorage.getItem('ve_auth_users')) setModo(true); } catch(e){}
+  $('versao').textContent = 'VIGIA ENERGY v' + (self.VE_VERSAO || '?');
   mostrar();
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(function(){});
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function(){});
   }
 })();
 </script>

@@ -1,16 +1,16 @@
 /* Vigia Energy — service worker único (escopo: raiz do repositório, cobre /energy/).
  * Navegação: network-first (pega versão nova quando há rede, cai no cache offline).
  * Assets: cache-first. Só respostas same-origin `basic` são guardadas.
- * Ao alterar qualquer arquivo, suba VERSAO para forçar atualização do cache. */
-var VERSAO = 've-v1';
+ * A CADA atualização: suba VERSAO aqui E VE_VERSAO em version.js (devem ser iguais). */
+var VERSAO = 've-2.0.0';
 var ARQUIVOS = [
-  './', 'index.html', 'common.css', 'auth.js', 'manifest.json',
+  './', 'index.html', 'common.css', 'auth.js', 'version.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'fonts/press-start-2p.woff2',
   'energy/', 'energy/index.html', 'energy/app.js'
 ];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(VERSAO).then(function (c) { return c.addAll(ARQUIVOS); }).then(function () { return self.skipWaiting(); }));
+  e.waitUntil(caches.open(VERSAO).then(function (c) { return c.addAll(ARQUIVOS.map(function (u) { return new Request(u, { cache: 'reload' }); })); }).then(function () { return self.skipWaiting(); }));
 });
 
 self.addEventListener('activate', function (e) {
@@ -24,7 +24,7 @@ self.addEventListener('activate', function (e) {
  * conferimos se o nosso cache ainda existe e o recriamos se sumiu. */
 function garantirPrecache() {
   return caches.open(VERSAO).then(function (c) {
-    return c.match('energy/app.js').then(function (r) { return r || c.addAll(ARQUIVOS); });
+    return c.match('energy/app.js').then(function (r) { return r || c.addAll(ARQUIVOS.map(function (u) { return new Request(u, { cache: 'reload' }); })); });
   }).catch(function () {});
 }
 
