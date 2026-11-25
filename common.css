@@ -48,3 +48,5 @@ input.num{font-family:var(--mono)}
 .olho .palpebra{transform-box:fill-box; transform-origin:50% 50%; animation:blink 4.5s infinite steps(1,end)}
 @keyframes blink{0%,92%{transform:scaleY(1)} 93%,96%{transform:scaleY(.1)} 97%,100%{transform:scaleY(1)}}
 @media (prefers-reduced-motion:reduce){.olho .palpebra{animation:none}}
+
+[hidden]{display:none!important}

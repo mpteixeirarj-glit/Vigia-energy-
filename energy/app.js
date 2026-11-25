@@ -12,6 +12,14 @@
   var MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   var $ = function (id) { return document.getElementById(id); };
 
+  // PS5: "repouso" (rest mode) gasta poucos watts; 150 W é menu/streaming (corrigido na v2.0.1)
+  var PS5_ANTIGO = JSON.stringify([{ rotulo: 'Repouso', watts: 150 }, { rotulo: 'Jogo intenso', watts: 200 }]);
+  var PS5_NOVO = [{ rotulo: 'Repouso (rest mode)', watts: 3 }, { rotulo: 'Menu/streaming', watts: 150 }, { rotulo: 'Jogo intenso', watts: 200 }];
+  var LED_ANTIGO = JSON.stringify([{ rotulo: 'Por lâmpada (8W)', watts: 8 }, { rotulo: 'Por lâmpada (12W)', watts: 12 }]);
+  var OBS_LED = 'No uso, informe quantas lâmpadas e a potência de cada uma';
+  var LAMP_W = [3, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 25, 30, 40];
+  var MAX_LAMP_LINHAS = 6;
+
   // Aparelhos pré-cadastrados (carregados uma única vez por conta, se a lista estiver vazia)
   var PRE = [
     { nome: 'Ar-condicionado', emoji: '❄️', potencias: [{ rotulo: 'Normal', watts: 1080 }] },
@@ -25,12 +33,11 @@
     { nome: 'Ferro a Vapor Philips', emoji: '👕', potencias: [{ rotulo: 'Baixo', watts: 1400 }, { rotulo: 'Alto', watts: 2000 }] },
     { nome: 'TV LG 55" NanoCell', emoji: '📺', potencias: [
       { rotulo: 'Baixo brilho', watts: 95 }, { rotulo: 'Brilho normal', watts: 130 }, { rotulo: 'Alto brilho', watts: 165 }] },
-    { nome: 'PS5', emoji: '🎮', potencias: [{ rotulo: 'Repouso', watts: 150 }, { rotulo: 'Jogo intenso', watts: 200 }] },
+    { nome: 'PS5', emoji: '🎮', potencias: PS5_NOVO },
     { nome: 'Ventilador de Teto', emoji: '🌬️', potencias: [
       { rotulo: 'Velocidade 1', watts: 50 }, { rotulo: 'Velocidade 2', watts: 65 }, { rotulo: 'Velocidade 3', watts: 80 }] },
     { nome: 'Lava-Jato Kärcher K2.500', emoji: '💦', potencias: [{ rotulo: 'Normal', watts: 1400 }, { rotulo: 'Máximo', watts: 1650 }] },
-    { nome: 'Iluminação LED', emoji: '💡', potencias: [{ rotulo: 'Por lâmpada (8W)', watts: 8 }, { rotulo: 'Por lâmpada (12W)', watts: 12 }],
-      observacao: 'Use o campo Qtd. para o número de lâmpadas acesas' }
+    { nome: 'Iluminação LED', emoji: '💡', tipo: 'lampadas', potencias: [{ rotulo: 'Por lâmpada', watts: 9 }], observacao: OBS_LED }
   ];
 
   // ───────── dados ─────────
@@ -59,11 +66,18 @@
       delete a.watts;
       if (!a.icone) a.icone = '🔌';
     });
+    d.aparelhos.forEach(function (a) {
+      var pj = JSON.stringify(a.potencias.map(function (p) { return { rotulo: p.rotulo, watts: p.watts }; }));
+      if (a.nome === 'PS5' && pj === PS5_ANTIGO) a.potencias = PS5_NOVO.map(function (p) { return { rotulo: p.rotulo, watts: p.watts }; });
+      if (a.nome === 'Iluminação LED' && !a.tipo && pj === LED_ANTIGO) {
+        a.tipo = 'lampadas'; a.potencias = [{ rotulo: 'Por lâmpada', watts: 9 }]; a.obs = OBS_LED;
+      }
+    });
     d.usos.forEach(function (u) { if (!(u.qtd > 0)) u.qtd = 1; if (u.potRotulo == null) u.potRotulo = ''; });
     if (!d.seeded) {
       if (!d.aparelhos.length) {
         d.aparelhos = PRE.map(function (p) {
-          return { id: novoId(), nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '',
+          return { id: novoId(), nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '', tipo: p.tipo || '',
             potencias: p.potencias.map(function (x) { return { rotulo: x.rotulo, watts: x.watts }; }) };
         });
       }
@@ -125,7 +139,10 @@
   }
   function aparelho(id) { return D.aparelhos.find(function (a) { return a.id === id; }); }
   function potTxt(u) { return (u.potRotulo ? u.potRotulo + ' · ' : '') + nf(u.watts, 0) + ' W' + (u.qtd > 1 ? ' × ' + nf(u.qtd, 0) : ''); }
+  var ehLamp = function (a) { return !!(a && a.tipo === 'lampadas'); };
+  function lampTxt(ls) { return ls.map(function (l) { return nf(l.qtd, 0) + '×' + nf(l.w, 0) + ' W'; }).join(' + '); }
   function faixaW(a) {
+    if (ehLamp(a)) return 'qtd. × W';
     var ws = a.potencias.map(function (p) { return p.watts; });
     var mn = Math.min.apply(null, ws), mx = Math.max.apply(null, ws);
     return mn === mx ? nf(mx, 0) + ' W' : nf(mn, 0) + '–' + nf(mx, 0) + ' W';
@@ -252,7 +269,8 @@
     $('a-lista').innerHTML = A.length ? A.map(function (a) {
       var mx = Math.max.apply(null, a.potencias.map(function (p) { return p.watts; }));
       return '<li><span class="ic">' + a.icone + '</span><span class="info"><b>' + esc(a.nome) + '</b><small class="num">' + faixaW(a) +
-        (a.potencias.length > 1 ? ' · ' + a.potencias.length + ' potências' : '') + ' · até ' + brl(kwhDe(mx, 60) * D.tarifa) + '/h' +
+        (ehLamp(a) ? ' · ' + brl(kwhDe(10, 60) * D.tarifa) + '/h por 10 W' :
+          (a.potencias.length > 1 ? ' · ' + a.potencias.length + ' potências' : '') + ' · até ' + brl(kwhDe(mx, 60) * D.tarifa) + '/h') +
         '</small>' + (D.medidores.length > 1 ? '<select class="sel-med" data-ap-med="' + a.id + '" aria-label="Medidor do aparelho">' +
           '<option value="">— medidor não definido —</option>' + D.medidores.map(function (m) {
             return '<option value="' + m.id + '"' + (m.id === a.medidorId ? ' selected' : '') + '>📟 ' + esc(m.nome) + '</option>';
@@ -266,9 +284,36 @@
     atualizaPotencias();
   }
 
+  // linhas "quantidade × W" para conjuntos de lâmpadas
+  function linhaLamp(q, w) {
+    return '<div class="pot-linha lamp-linha"><input class="num" inputmode="numeric" value="' + (q || '') + '" placeholder="Qtd." aria-label="Quantidade de lâmpadas">' +
+      '<span class="vezes">×</span><input class="num" inputmode="decimal" list="lamp-w" value="' + (w || '') + '" placeholder="W" aria-label="Potência de cada lâmpada (W)">' +
+      '<button type="button" class="x lamp-del" aria-label="Remover linha">✕</button></div>';
+  }
+  function preencheLamps(a) {
+    var ult = ord(D.usos).filter(function (u) { return u.aparelhoId === a.id && Array.isArray(u.lampadas); }).pop();
+    var ls = ult ? ult.lampadas : [{ qtd: 1, w: a.potencias[0] ? a.potencias[0].watts : 9 }];
+    $('u-lamps').innerHTML = ls.map(function (l) { return linhaLamp(l.qtd, l.w); }).join('');
+    $('u-lamp-dica').textContent = ult ? 'Preenchido com o último uso deste aparelho.' : '';
+  }
+  function lerLamps() {
+    var out = [], ok = true;
+    document.querySelectorAll('#u-lamps .lamp-linha').forEach(function (r) {
+      var ins = r.querySelectorAll('input'), qt = ins[0].value.trim(), wt = ins[1].value.trim();
+      if (qt === '' && wt === '') return;
+      var q = numero(qt), w = numero(wt);
+      if (!(q >= 1 && q <= 500 && q === Math.floor(q)) || !(w > 0 && w <= 500)) { ok = false; return; }
+      out.push({ qtd: q, w: w });
+    });
+    return ok ? out : null;
+  }
+
   function atualizaPotencias() {
     var a = aparelho($('u-ap').value), sel = $('u-pot'), atual = sel.value;
-    var multi = !!(a && a.potencias.length > 1);
+    var lamp = ehLamp(a);
+    $('u-campo-lamp').hidden = !lamp; $('u-campo-qtd').hidden = lamp;
+    if (lamp && $('u-lamps').dataset.ap !== a.id) { preencheLamps(a); $('u-lamps').dataset.ap = a.id; }
+    var multi = !!(a && a.potencias.length > 1) && !lamp;
     $('u-campo-pot').hidden = !multi;
     sel.innerHTML = a ? a.potencias.map(function (p, i) { return '<option value="' + i + '">' + esc(p.rotulo) + ' — ' + nf(p.watts, 0) + ' W</option>'; }).join('') : '';
     if (multi) sel.value = atual && Number(atual) < a.potencias.length ? atual : String(Math.min(1, a.potencias.length - 1));
@@ -278,13 +323,19 @@
   }
   function usoDoForm() {
     var a = aparelho($('u-ap').value); if (!a) return null;
+    if (ehLamp(a)) {
+      var ls = lerLamps(), tw = ls ? ls.reduce(function (s, l) { return s + l.qtd * l.w; }, 0) : NaN;
+      return { a: a, p: { rotulo: ls ? lampTxt(ls) : '', watts: tw }, m: numero($('u-min').value), q: 1, lampadas: ls };
+    }
     var p = a.potencias[Number($('u-pot').value) || 0] || a.potencias[0];
     var q = numero($('u-qtd').value);
     return { a: a, p: p, m: numero($('u-min').value), q: $('u-qtd').value.trim() === '' ? 1 : q };
   }
   function previewUso() {
     var f = usoDoForm();
-    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 ? '≈ <span class="num">' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(kwhDe(f.p.watts, f.m, f.q) * D.tarifa) + '</span>' : '';
+    var extra = f && f.lampadas && f.lampadas.length ? '<span class="num">' + esc(f.p.rotulo) + ' = ' + nf(f.p.watts, 0) + ' W</span><br>' : '';
+    if (f && f.lampadas === null) { $('u-prev').innerHTML = '<span class="neg">Confira quantidade (inteiro) e potência (W) das lâmpadas.</span>'; return; }
+    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '≈ <span class="num">' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(kwhDe(f.p.watts, f.m, f.q) * D.tarifa) + '</span>' : '';
   }
 
   function renderUsos() {
@@ -501,7 +552,12 @@
   $('a-pots').innerHTML = [1, 2, 3, 4].map(function (i) {
     return '<div class="pot-linha"><input placeholder="Posição ' + i + '" maxlength="40" aria-label="Rótulo ' + i + '"><input class="num" inputmode="numeric" placeholder="W" aria-label="Potência ' + i + ' em watts"></div>';
   }).join('');
-  $('a-multi').onchange = function () { $('a-uma').hidden = this.checked; $('a-varias').hidden = !this.checked; };
+  function ajustaCadastro() {
+    var lamp = $('a-lamp').checked, multi = $('a-multi').checked;
+    $('a-toggle-multi').hidden = lamp;
+    $('a-uma').hidden = lamp || multi; $('a-varias').hidden = lamp || !multi;
+  }
+  $('a-multi').onchange = ajustaCadastro; $('a-lamp').onchange = ajustaCadastro;
 
   var iconeSel = ICONES[0];
   $('a-icones').innerHTML = ICONES.map(function (i) { return '<button type="button" data-ic="' + i + '">' + i + '</button>'; }).join('');
@@ -513,8 +569,10 @@
     e.preventDefault();
     var nome = $('a-nome').value.trim();
     if (!nome) return toast('INFORME O NOME');
-    var pots = [];
-    if ($('a-multi').checked) {
+    var pots = [], lamp = $('a-lamp').checked;
+    if (lamp) {
+      pots.push({ rotulo: 'Por lâmpada', watts: 9 });
+    } else if ($('a-multi').checked) {
       var linhas = document.querySelectorAll('#a-pots .pot-linha');
       for (var i = 0; i < linhas.length; i++) {
         var ins = linhas[i].querySelectorAll('input'), wTxt = ins[1].value.trim();
@@ -529,12 +587,12 @@
       if (!(w1 > 0 && w1 <= 50000)) return toast('POTÊNCIA INVÁLIDA (1–50000 W)');
       pots.push({ rotulo: 'Normal', watts: w1 });
     }
-    D.aparelhos.push({ id: novoId(), nome: nome, icone: iconeSel, potencias: pots, obs: $('a-obs').value.trim(),
+    D.aparelhos.push({ id: novoId(), nome: nome, icone: iconeSel, potencias: pots, tipo: lamp ? 'lampadas' : '', obs: $('a-obs').value.trim() || (lamp ? OBS_LED : ''),
       medidorId: D.medidores.length > 1 ? $('a-med').value : '' });
     salvar();
     $('a-nome').value = $('a-watts').value = $('a-obs').value = '';
     document.querySelectorAll('#a-pots input').forEach(function (x) { x.value = ''; });
-    $('a-multi').checked = false; $('a-multi').onchange.call($('a-multi'));
+    $('a-multi').checked = false; $('a-lamp').checked = false; ajustaCadastro();
     render(); toast('APARELHO CADASTRADO ✓');
   };
 
@@ -544,6 +602,20 @@
     a.medidorId = sel.value; salvar(); toast('MEDIDOR DO APARELHO ATUALIZADO ✓');
   });
 
+  $('lamp-w').innerHTML = LAMP_W.map(function (w) { return '<option value="' + w + '">' + w + ' W</option>'; }).join('');
+  $('u-lamps').addEventListener('input', previewUso);
+  $('u-lamps').addEventListener('click', function (e) {
+    var b = e.target.closest('.lamp-del'); if (!b) return;
+    e.stopPropagation();
+    if (document.querySelectorAll('#u-lamps .lamp-linha').length > 1) b.parentNode.remove();
+    else b.parentNode.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+    previewUso();
+  });
+  $('u-lamp-add').onclick = function () {
+    if (document.querySelectorAll('#u-lamps .lamp-linha').length >= MAX_LAMP_LINHAS) return toast('MÁXIMO ' + MAX_LAMP_LINHAS + ' TIPOS');
+    $('u-lamps').insertAdjacentHTML('beforeend', linhaLamp('', '')); previewUso();
+  };
+
   $('u-ap').onchange = atualizaPotencias;
   $('u-pot').onchange = previewUso; $('u-min').oninput = previewUso; $('u-qtd').oninput = previewUso;
   $('f-uso').onsubmit = function (e) {
@@ -552,10 +624,13 @@
     if (!f) return toast('CADASTRE UM APARELHO');
     if (!(f.m > 0 && f.m <= 1440 * 31)) return toast('MINUTOS INVÁLIDOS');
     if (!(f.q >= 1 && f.q <= 500 && f.q === Math.floor(f.q))) return toast('QUANTIDADE INVÁLIDA');
+    if (f.lampadas === null) return toast('CONFIRA AS LÂMPADAS');
+    if (f.lampadas && !f.lampadas.length) return toast('INFORME AS LÂMPADAS');
     // guarda nome/potência/ícone no registro: excluir o aparelho não apaga o histórico
     D.usos.push({ id: novoId(), ts: lerTs($('u-ts')), aparelhoId: f.a.id, nome: f.a.nome, icone: f.a.icone,
-      watts: f.p.watts, potRotulo: f.a.potencias.length > 1 ? f.p.rotulo : '', minutos: f.m, qtd: f.q, medidorId: f.a.medidorId || '' });
-    salvar(); $('u-min').value = ''; $('u-qtd').value = '1'; $('u-ts').value = '';
+      watts: f.p.watts, potRotulo: f.lampadas ? f.p.rotulo : f.a.potencias.length > 1 ? f.p.rotulo : '', minutos: f.m, qtd: f.q,
+      lampadas: f.lampadas || undefined, medidorId: f.a.medidorId || '' });
+    salvar(); $('u-min').value = ''; $('u-qtd').value = '1'; $('u-ts').value = ''; $('u-lamps').dataset.ap = '';
     render(); toast('USO REGISTRADO ✓');
   };
 

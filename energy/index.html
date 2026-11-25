@@ -74,6 +74,9 @@
   .toggle input{width:22px; height:22px; accent-color:var(--ciano); flex:none}
   .pot-linha{display:flex; gap:8px; margin-top:6px}
   .pot-linha input:first-child{flex:1} .pot-linha input:last-child{flex:0 0 96px}
+  .lamp-linha{align-items:center}
+  .lamp-linha input:first-child{flex:0 0 80px} .lamp-linha input:nth-of-type(2){flex:1}
+  .lamp-linha .vezes{font-family:var(--mono); color:var(--dim)}
 
   .kpis{display:grid; grid-template-columns:1fr 1fr; gap:10px}
   .kpi{background:var(--bg); border:2px solid var(--borda); padding:10px}
@@ -238,7 +241,8 @@
       <h2>🔌 NOVO APARELHO</h2>
       <label for="a-nome">Nome</label>
       <input id="a-nome" maxlength="60" placeholder="ex: Chuveiro Lorenzetti" required>
-      <label class="toggle"><input type="checkbox" id="a-multi"> Tem mais de uma potência?</label>
+      <label class="toggle"><input type="checkbox" id="a-lamp"> É um conjunto de lâmpadas? (quantidade e W de cada no uso)</label>
+      <label class="toggle" id="a-toggle-multi"><input type="checkbox" id="a-multi"> Tem mais de uma potência?</label>
       <div id="a-uma">
         <label for="a-watts">Potência (W)</label>
         <input id="a-watts" class="num" inputmode="numeric" placeholder="ex: 7500">
@@ -274,9 +278,16 @@
         <label for="u-pot">Qual potência usada?</label>
         <select id="u-pot"></select>
       </div>
+      <div id="u-campo-lamp" hidden>
+        <label>Lâmpadas acesas — quantidade × potência de cada (W)</label>
+        <div id="u-lamps"></div>
+        <datalist id="lamp-w"></datalist>
+        <button type="button" class="btn mini" id="u-lamp-add" style="margin-top:8px">+ OUTRO TIPO DE LÂMPADA</button>
+        <div class="dim" id="u-lamp-dica" style="font-size:12px;margin-top:6px"></div>
+      </div>
       <div class="linha">
         <div><label for="u-min">Minutos de uso</label><input id="u-min" class="num" inputmode="decimal" placeholder="ex: 15" required></div>
-        <div class="estreito"><label for="u-qtd">Qtd.</label><input id="u-qtd" class="num" inputmode="numeric" value="1"></div>
+        <div class="estreito" id="u-campo-qtd"><label for="u-qtd">Qtd.</label><input id="u-qtd" class="num" inputmode="numeric" value="1"></div>
       </div>
       <details><summary>Ajustar horário do fim do uso (padrão: agora)</summary>
         <input id="u-ts" type="datetime-local" style="margin-top:6px">
