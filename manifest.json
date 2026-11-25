@@ -1,0 +1,17 @@
+{
+  "name": "Vigia Energy",
+  "short_name": "Energy",
+  "description": "Controle de consumo de energia elétrica residencial",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "pt-BR",
+  "background_color": "#0b0d14",
+  "theme_color": "#00e5ff",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

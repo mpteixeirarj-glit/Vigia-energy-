@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0d14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Energy">
+<link rel="manifest" href="../manifest.json">
+<link rel="icon" href="../icon-192.png">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<link rel="preload" href="../fonts/press-start-2p.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../common.css">
+<title>Vigia Energy</title>
+<script src="../auth.js"></script>
+<script>
+  // Sem sessão → volta para o login (proteção apenas de navegação, não de dados)
+  if (!VigiaAuth.sessao()) location.replace('../index.html?volta=energy');
+</script>
+<style>
+  header{position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:2px solid var(--borda);
+    display:flex; align-items:center; gap:10px; padding:12px 16px; padding-top:max(12px, env(safe-area-inset-top))}
+  header h1{font-size:12px; color:var(--ciano)}
+  header h1 b{color:var(--amarelo); font-weight:400}
+  header a{margin-left:auto; font-family:var(--pixel); font-size:8px; color:var(--dim); text-decoration:none}
+  header .olho{width:32px; height:20px}
+  main{max-width:640px; margin:0 auto; padding:16px 16px 110px}
+  nav{position:fixed; bottom:0; left:0; right:0; z-index:5; background:var(--card); border-top:2px solid var(--borda);
+    display:grid; grid-template-columns:repeat(5,1fr); padding-bottom:env(safe-area-inset-bottom)}
+  nav button{background:none; border:0; color:var(--dim); padding:10px 2px 12px; cursor:pointer; font-family:var(--pixel);
+    font-size:7px; line-height:1.4; border-top:3px solid transparent}
+  nav button .e{display:block; font-size:20px; margin-bottom:5px; font-family:initial}
+  nav button.on{color:var(--ciano); border-top-color:var(--ciano); background:var(--bg)}
+  .aba{display:none} .aba.on{display:block}
+  .linha{display:flex; gap:8px; align-items:flex-end}
+  .linha > *{flex:1}
+  .grande{font-family:var(--mono); font-size:28px; color:var(--amarelo)}
+  .lista{list-style:none}
+  .lista li{display:flex; align-items:center; gap:10px; padding:10px 0; border-top:2px dashed var(--borda)}
+  .lista li:first-child{border-top:0}
+  .lista .ic{font-size:22px; width:34px; text-align:center}
+  .lista .info{flex:1; min-width:0}
+  .lista .info b{display:block; font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .lista .info small{color:var(--dim); font-size:12px}
+  .vazio{color:var(--dim); font-size:13px; text-align:center; padding:12px 0}
+  .x{background:none; border:2px solid var(--borda); color:var(--dim); width:32px; height:32px; cursor:pointer; font-family:var(--mono); font-size:14px}
+  .x:hover{border-color:var(--vermelho); color:var(--vermelho)}
+  .icones{display:grid; grid-template-columns:repeat(auto-fill,minmax(44px,1fr)); gap:6px}
+  .icones button{font-size:22px; height:44px; background:var(--bg); border:2px solid var(--borda); cursor:pointer}
+  .icones button.on{border-color:var(--amarelo); background:#241f00}
+  .prev{font-size:13px; color:var(--dim); margin-top:8px; min-height:18px}
+  .prev .num{color:var(--ciano)}
+  details summary{cursor:pointer; color:var(--dim); font-size:12px; margin-top:10px}
+  .kpis{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .kpi{background:var(--bg); border:2px solid var(--borda); padding:10px}
+  .kpi .r{font-family:var(--pixel); font-size:8px; color:var(--dim); line-height:1.6}
+  .kpi .v{font-family:var(--mono); font-size:18px; color:var(--amarelo); margin-top:4px}
+  .kpi .s{font-family:var(--mono); font-size:12px; color:var(--dim)}
+  .intervalo{border:2px solid var(--borda); padding:10px; margin-top:10px; background:var(--bg)}
+  .intervalo .per{font-family:var(--mono); font-size:12px; color:var(--ciano); margin-bottom:6px}
+  .tab{width:100%; border-collapse:collapse; font-size:13px}
+  .tab td{padding:3px 0}
+  .tab td.n{text-align:right; font-family:var(--mono); white-space:nowrap}
+  .pos{color:var(--verde)} .neg{color:var(--vermelho)}
+  .alerta{font-size:12px; color:var(--vermelho); margin-top:6px}
+  .rank{margin-top:10px}
+  .rank .top{display:flex; justify-content:space-between; gap:8px; font-size:13px}
+  .rank .top .num{color:var(--amarelo); white-space:nowrap}
+  .barra{height:12px; background:var(--bg); border:2px solid var(--borda); margin-top:4px; padding:1px}
+  .barra i{display:block; height:100%;
+    background:repeating-linear-gradient(90deg, var(--c,var(--vermelho)) 0 6px, transparent 6px 8px)}
+  .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
+    font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:9; display:none; max-width:90vw}
+  .so-print{display:none}
+
+  @media print{
+    @page{margin:14mm}
+    html,body{background:#fff!important; color:#000!important}
+    header,nav,.toast,.no-print,form,details{display:none!important}
+    main{padding:0; max-width:none}
+    .aba{display:none!important} #aba-relatorio{display:block!important}
+    .so-print{display:block}
+    .card,.intervalo,.kpi{background:#fff!important; border:1px solid #999!important; break-inside:avoid}
+    h2,h3,.grande,.kpi .v,.intervalo .per,.rank .top .num{color:#000!important}
+    .dim,.kpi .r,.kpi .s{color:#444!important}
+    .pos{color:#0a6b2c!important} .neg,.alerta{color:#b00000!important}
+    .barra{border-color:#999!important} .barra i{background:#555!important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="olho" aria-hidden="true">
+    <svg viewBox="0 0 16 10" shape-rendering="crispEdges"><g class="palpebra">
+      <g fill="#00e5ff">
+        <rect x="5" y="1" width="6" height="1"/><rect x="3" y="2" width="2" height="1"/><rect x="11" y="2" width="2" height="1"/>
+        <rect x="1" y="3" width="2" height="1"/><rect x="13" y="3" width="2" height="1"/>
+        <rect x="0" y="4" width="1" height="2"/><rect x="15" y="4" width="1" height="2"/>
+        <rect x="1" y="6" width="2" height="1"/><rect x="13" y="6" width="2" height="1"/>
+        <rect x="3" y="7" width="2" height="1"/><rect x="11" y="7" width="2" height="1"/><rect x="5" y="8" width="6" height="1"/>
+      </g>
+      <rect x="6" y="3" width="4" height="4" fill="#ffd700"/><rect x="7" y="4" width="2" height="2" fill="#0b0d14"/>
+      <rect x="6" y="3" width="1" height="1" fill="#fff"/>
+    </g></svg>
+  </span>
+  <h1>VIGIA <b>ENERGY</b></h1>
+  <a href="../index.html">‹ HUB</a>
+</header>
+
+<main>
+  <!-- ⚡ MEDIDOR -->
+  <section class="aba on" id="aba-medidor">
+    <form class="card" id="f-leitura">
+      <h2>⚡ LEITURA DO MEDIDOR</h2>
+      <label for="l-kwh">Valor do relógio (kWh)</label>
+      <input id="l-kwh" class="num" inputmode="decimal" placeholder="ex: 12345,6" required>
+      <details><summary>Ajustar data/hora (padrão: agora)</summary>
+        <input id="l-ts" type="datetime-local" style="margin-top:6px">
+      </details>
+      <div class="prev" id="l-prev"></div>
+      <button class="btn full" type="submit">REGISTRAR AGORA</button>
+    </form>
+    <div class="card">
+      <h2>HISTÓRICO</h2>
+      <ul class="lista" id="l-lista"></ul>
+    </div>
+  </section>
+
+  <!-- 🔌 APARELHOS -->
+  <section class="aba" id="aba-aparelhos">
+    <form class="card" id="f-aparelho">
+      <h2>🔌 NOVO APARELHO</h2>
+      <label for="a-nome">Nome</label>
+      <input id="a-nome" maxlength="60" placeholder="ex: Chuveiro Lorenzetti 7500W" required>
+      <label for="a-watts">Potência (W)</label>
+      <input id="a-watts" class="num" inputmode="numeric" placeholder="ex: 7500" required>
+      <label>Ícone</label>
+      <div class="icones" id="a-icones"></div>
+      <button class="btn full" type="submit">CADASTRAR</button>
+    </form>
+    <div class="card">
+      <h2>CADASTRADOS</h2>
+      <ul class="lista" id="a-lista"></ul>
+    </div>
+  </section>
+
+  <!-- 📋 USO -->
+  <section class="aba" id="aba-uso">
+    <form class="card" id="f-uso">
+      <h2>📋 REGISTRAR USO</h2>
+      <label for="u-ap">Aparelho</label>
+      <select id="u-ap" required></select>
+      <label for="u-min">Minutos de uso</label>
+      <input id="u-min" class="num" inputmode="decimal" placeholder="ex: 15" required>
+      <details><summary>Ajustar horário do fim do uso (padrão: agora)</summary>
+        <input id="u-ts" type="datetime-local" style="margin-top:6px">
+      </details>
+      <div class="prev" id="u-prev"></div>
+      <button class="btn full" type="submit">REGISTRAR</button>
+    </form>
+    <div class="card">
+      <h2>HISTÓRICO DE USO</h2>
+      <ul class="lista" id="u-lista"></ul>
+    </div>
+  </section>
+
+  <!-- 📊 RELATÓRIO -->
+  <section class="aba" id="aba-relatorio">
+    <div class="so-print">
+      <h2>VIGIA ENERGY — RELATÓRIO</h2>
+      <p id="print-cab" style="font-size:12px;margin-bottom:12px"></p>
+    </div>
+    <div class="card">
+      <h2>📊 RESUMO</h2>
+      <div class="kpis" id="r-kpis"></div>
+    </div>
+    <div class="card">
+      <h2>🏆 VILÕES</h2>
+      <div id="r-rank"></div>
+    </div>
+    <div class="card">
+      <h2>⏱ INTERVALOS</h2>
+      <p class="dim" style="font-size:12px">Fundo = medido no relógio − estimado pelos usos registrados (geladeira, standby, o que você não anotou).</p>
+      <div id="r-int"></div>
+    </div>
+  </section>
+
+  <!-- ⚙️ CONFIG -->
+  <section class="aba" id="aba-config">
+    <form class="card" id="f-tarifa">
+      <h2>⚙️ TARIFA</h2>
+      <label for="c-tarifa">R$ por kWh (com impostos e bandeira)</label>
+      <input id="c-tarifa" class="num" inputmode="decimal" required>
+      <p class="dim" style="font-size:12px;margin-top:6px">Dica: divida o total da conta (R$) pelo consumo faturado (kWh).</p>
+      <button class="btn full" type="submit">SALVAR TARIFA</button>
+    </form>
+    <div class="card">
+      <h2>📄 RELATÓRIO</h2>
+      <button class="btn full amarelo" id="c-pdf">EXPORTAR PDF</button>
+      <p class="dim" style="font-size:12px;margin-top:6px">Abre a impressão do navegador — escolha "Salvar como PDF".</p>
+    </div>
+    <div class="card">
+      <h2>💾 BACKUP</h2>
+      <p class="dim" style="font-size:12px">Os dados ficam só neste navegador. Safari pode apagá-los após dias sem uso se o app não estiver na tela inicial. Faça backup.</p>
+      <button class="btn full" id="c-exp">EXPORTAR BACKUP (.JSON)</button>
+      <button class="btn full" id="c-imp">IMPORTAR BACKUP</button>
+      <input type="file" id="c-arq" accept="application/json,.json" hidden>
+    </div>
+    <div class="card">
+      <h2>⚠️ ZONA DE PERIGO</h2>
+      <button class="btn full perigo" id="c-limpar">LIMPAR TODOS OS DADOS</button>
+      <button class="btn full" id="c-sair">SAIR DA CONTA</button>
+      <p class="dim" style="font-size:12px;margin-top:8px" id="c-conta"></p>
+    </div>
+  </section>
+</main>
+
+<nav id="nav">
+  <button data-aba="medidor" class="on"><span class="e">⚡</span>MEDIDOR</button>
+  <button data-aba="aparelhos"><span class="e">🔌</span>APARELHOS</button>
+  <button data-aba="uso"><span class="e">📋</span>USO</button>
+  <button data-aba="relatorio"><span class="e">📊</span>RELATÓRIO</button>
+  <button data-aba="config"><span class="e">⚙️</span>CONFIG</button>
+</nav>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

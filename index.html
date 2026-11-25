@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0d14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vigia">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preload" href="fonts/press-start-2p.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="common.css">
+<title>Vigia</title>
+<style>
+  main{max-width:440px; margin:0 auto; padding:32px 16px 48px}
+  .logo{text-align:center; margin:16px 0 28px}
+  .logo .olho{width:96px; height:60px}
+  .logo h1{font-size:28px; color:var(--ciano); margin-top:14px; text-shadow:3px 3px 0 #003b44}
+  .logo p{font-family:var(--pixel); font-size:8px; color:var(--dim); margin-top:10px; line-height:1.8}
+  .alt{text-align:center; margin-top:14px; font-size:13px; color:var(--dim)}
+  .aviso{font-size:12px; color:var(--dim); margin-top:14px; border-left:2px solid var(--amarelo); padding-left:8px}
+  .hub-top{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:18px}
+  .hub-top .pixel{font-size:10px; color:var(--dim)}
+  .vcard{display:flex; align-items:center; gap:14px; padding:18px 14px; margin-bottom:14px;
+    background:var(--card); border:2px solid var(--borda); color:var(--txt); text-decoration:none;
+    box-shadow:4px 4px 0 #05060a; transition:none}
+  .vcard:hover,.vcard:focus-visible{border-color:var(--cor); outline:none}
+  .vcard:active{transform:translate(2px,2px); box-shadow:2px 2px 0 #05060a}
+  .vcard .ico{font-size:30px; width:52px; height:52px; display:grid; place-items:center;
+    border:2px solid var(--cor); background:var(--bg)}
+  .vcard .t{font-family:var(--pixel); font-size:11px; color:var(--cor); line-height:1.6}
+  .vcard .d{font-size:12px; color:var(--dim); margin-top:4px}
+  .vcard .seta{margin-left:auto; font-family:var(--pixel); color:var(--cor)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <div class="logo">
+    <span class="olho" aria-hidden="true">
+      <svg viewBox="0 0 16 10" shape-rendering="crispEdges"><g class="palpebra">
+        <g fill="#00e5ff">
+          <rect x="5" y="1" width="6" height="1"/><rect x="3" y="2" width="2" height="1"/><rect x="11" y="2" width="2" height="1"/>
+          <rect x="1" y="3" width="2" height="1"/><rect x="13" y="3" width="2" height="1"/>
+          <rect x="0" y="4" width="1" height="2"/><rect x="15" y="4" width="1" height="2"/>
+          <rect x="1" y="6" width="2" height="1"/><rect x="13" y="6" width="2" height="1"/>
+          <rect x="3" y="7" width="2" height="1"/><rect x="11" y="7" width="2" height="1"/><rect x="5" y="8" width="6" height="1"/>
+        </g>
+        <rect x="6" y="3" width="4" height="4" fill="#ffd700"/>
+        <rect x="7" y="4" width="2" height="2" fill="#0b0d14"/>
+        <rect x="6" y="3" width="1" height="1" fill="#ffffff"/>
+      </g></svg>
+    </span>
+    <h1>VIGIA</h1>
+    <p>DE OLHO NO QUE É SEU</p>
+  </div>
+
+  <!-- LOGIN -->
+  <section id="tela-login" hidden>
+    <form class="card" id="f-login" autocomplete="on">
+      <h2 id="titulo-form">ENTRAR</h2>
+      <label for="email">E-mail</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="senha">Senha</label>
+      <input id="senha" type="password" autocomplete="current-password" required minlength="6">
+      <div id="campo-conf" hidden>
+        <label for="senha2">Confirmar senha</label>
+        <input id="senha2" type="password" autocomplete="new-password" minlength="6">
+      </div>
+      <div class="erro" id="erro" role="alert"></div>
+      <button class="btn full" type="submit" id="btn-submit">ENTRAR</button>
+      <div class="alt"><span id="alt-txt">Não tem conta?</span>
+        <button class="link" type="button" id="alternar">Criar conta</button></div>
+      <p class="aviso">Conta salva só neste aparelho (sem servidor). Esquecer a senha = perder o acesso aos dados locais.</p>
+    </form>
+  </section>
+
+  <!-- HUB -->
+  <section id="tela-hub" hidden>
+    <div class="hub-top">
+      <span class="pixel" id="quem"></span>
+      <button class="btn mini perigo" id="sair">SAIR</button>
+    </div>
+    <h2>ESCOLHA SEU VIGIA</h2>
+    <a class="vcard" href="energy/" style="--cor:var(--ciano)">
+      <span class="ico">⚡</span><span><div class="t">VIGIA ENERGY</div><div class="d">Medidor, aparelhos e vilões da conta de luz</div></span><span class="seta">›</span>
+    </a>
+    <a class="vcard" href="https://mpteixeirarj-glit.github.io/vigia/" style="--cor:var(--amarelo)">
+      <span class="ico">💰</span><span><div class="t">VIGIA FINANCEIRO</div><div class="d">Requer login próprio</div></span><span class="seta">›</span>
+    </a>
+    <a class="vcard" href="https://mpteixeirarj-glit.github.io/AUTO-VIGIA-/" style="--cor:#ff8a3d">
+      <span class="ico">🚗</span><span><div class="t">AUTO-VIGIA</div><div class="d">Controle do veículo</div></span><span class="seta">›</span>
+    </a>
+  </section>
+</main>
+<script src="auth.js"></script>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var modoCriar = false;
+
+  function mostrar(){
+    var s = VigiaAuth.sessao();
+    $('tela-login').hidden = !!s;
+    $('tela-hub').hidden = !s;
+    if (s) $('quem').textContent = s.email;
+    if (!s) setTimeout(function(){ $('email').focus(); }, 50);
+  }
+  function setModo(criar){
+    modoCriar = criar;
+    $('titulo-form').textContent = criar ? 'CRIAR CONTA' : 'ENTRAR';
+    $('btn-submit').textContent = criar ? 'CRIAR CONTA' : 'ENTRAR';
+    $('alt-txt').textContent = criar ? 'Já tem conta?' : 'Não tem conta?';
+    $('alternar').textContent = criar ? 'Entrar' : 'Criar conta';
+    $('campo-conf').hidden = !criar;
+    $('senha').autocomplete = criar ? 'new-password' : 'current-password';
+    $('erro').textContent = '';
+  }
+  $('alternar').onclick = function(){ setModo(!modoCriar); };
+  $('sair').onclick = function(){ VigiaAuth.sair(); setModo(false); mostrar(); };
+
+  $('f-login').onsubmit = async function(ev){
+    ev.preventDefault();
+    var erro = $('erro'); erro.textContent = '';
+    if (!VigiaAuth.disponivel()) { erro.textContent = 'Navegador sem suporte a criptografia (abra via HTTPS).'; return; }
+    var btn = $('btn-submit'); btn.disabled = true;
+    try {
+      if (modoCriar) {
+        if ($('senha').value !== $('senha2').value) throw new Error('As senhas não conferem.');
+        await VigiaAuth.criarConta($('email').value, $('senha').value);
+      } else {
+        await VigiaAuth.entrar($('email').value, $('senha').value);
+      }
+      $('senha').value = $('senha2').value = '';
+      var volta = new URLSearchParams(location.search).get('volta');
+      if (volta === 'energy') { location.href = 'energy/'; return; }
+      mostrar();
+    } catch (e) { erro.textContent = e.message; }
+    finally { btn.disabled = false; }
+  };
+
+  // Primeiro uso: sem contas → já abre em "criar conta"
+  try { if (!localStorage.getItem('ve_auth_users')) setModo(true); } catch(e){}
+  mostrar();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  }
+})();
+</script>
+</body>
+</html>

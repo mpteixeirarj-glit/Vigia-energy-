@@ -1,0 +1,50 @@
+/* Vigia Energy — estilos compartilhados (hub + app) */
+@font-face{
+  font-family:'Press Start 2P';
+  src:url('fonts/press-start-2p.woff2') format('woff2');
+  font-weight:400; font-style:normal; font-display:swap;
+}
+:root{
+  --bg:#0b0d14; --card:#12151f; --borda:#1e2535;
+  --ciano:#00e5ff; --amarelo:#ffd700; --vermelho:#ff4444; --verde:#39ff7a;
+  --txt:#e0e0e0; --dim:#6b7280;
+  --pixel:'Press Start 2P', monospace;
+  --mono:ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{background:var(--bg); color:var(--txt)}
+body{font-family:Arial, Helvetica, sans-serif; font-size:15px; line-height:1.45;
+  min-height:100vh; -webkit-tap-highlight-color:transparent}
+h1,h2,h3,.pixel{font-family:var(--pixel); font-weight:400; letter-spacing:.5px}
+h2{font-size:12px; color:var(--ciano); margin-bottom:12px; line-height:1.6}
+h3{font-size:10px; color:var(--amarelo); margin:10px 0 8px; line-height:1.6}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+.dim{color:var(--dim)}
+.card{background:var(--card); border:2px solid var(--borda); padding:14px; margin-bottom:14px}
+hr,.sep{border:0; border-top:2px dashed var(--borda); margin:12px 0}
+label{display:block; font-size:12px; color:var(--dim); margin:8px 0 4px}
+input,select{width:100%; background:var(--bg); color:var(--txt); border:2px solid var(--borda);
+  border-radius:0; padding:10px; font-size:16px; font-family:inherit; outline:none}
+input:focus,select:focus{border-color:var(--ciano)}
+input.num{font-family:var(--mono)}
+.btn{display:inline-block; font-family:var(--pixel); font-size:10px; line-height:1.4;
+  background:var(--bg); color:var(--ciano); border:2px solid var(--ciano); border-radius:0;
+  padding:12px 14px; cursor:pointer; text-decoration:none; text-align:center; user-select:none}
+.btn:hover,.btn:focus-visible{background:var(--ciano); color:var(--bg)}
+.btn:active{transform:translate(2px,2px)}
+.btn.full{display:block; width:100%; margin-top:12px}
+.btn.amarelo{color:var(--amarelo); border-color:var(--amarelo)}
+.btn.amarelo:hover{background:var(--amarelo); color:var(--bg)}
+.btn.perigo{color:var(--vermelho); border-color:var(--vermelho)}
+.btn.perigo:hover{background:var(--vermelho); color:var(--bg)}
+.btn.mini{font-size:8px; padding:6px 8px}
+.link{color:var(--ciano); background:none; border:0; cursor:pointer; font-size:13px; text-decoration:underline; font-family:inherit}
+.erro{color:var(--vermelho); font-size:13px; min-height:18px; margin-top:8px}
+.ok{color:var(--verde)}
+
+/* Olho pixel animado */
+.olho{display:inline-block; width:48px; height:28px; position:relative; image-rendering:pixelated}
+.olho svg{width:100%; height:100%; display:block}
+.olho .palpebra{transform-box:fill-box; transform-origin:50% 50%; animation:blink 4.5s infinite steps(1,end)}
+@keyframes blink{0%,92%{transform:scaleY(1)} 93%,96%{transform:scaleY(.1)} 97%,100%{transform:scaleY(1)}}
+@media (prefers-reduced-motion:reduce){.olho .palpebra{animation:none}}
