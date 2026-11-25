@@ -230,6 +230,12 @@
   .compacta .vazio{justify-content:center; font-family:Arial, sans-serif; border-top:0}
   .link.mais{display:block; margin:10px 0 0 auto; font-size:13px}
   .repetir{border:2px solid var(--amarelo); padding:10px; margin:4px 0 6px}
+  .vil-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap}
+  .vil-top h2{margin-bottom:8px}
+  .chips{display:flex; gap:4px}
+  .chip{background:var(--bg); color:var(--dim); border:2px solid var(--borda); font-family:var(--pixel); font-size:7px; padding:7px 6px; cursor:pointer; min-height:32px}
+  .chip.on{color:var(--bg); background:var(--ciano); border-color:var(--ciano)}
+  .vil-resumo{font-size:12px; color:var(--dim); margin-top:10px}
   /* medidor */
   .med-edit{display:grid; gap:6px; margin-top:8px; width:100%}
   .med-acoes{display:flex; gap:6px; flex:none}
@@ -434,6 +440,19 @@
       <div class="total-box" id="u-hoje-total"></div>
     </div>
 
+    <div class="card" id="vil-ini">
+      <div class="vil-top"><h2>🏆 VILÕES</h2>
+        <div class="chips" role="radiogroup" aria-label="Período dos vilões">
+          <button type="button" class="chip" role="radio" data-per="hoje">HOJE</button>
+          <button type="button" class="chip" role="radio" data-per="7">7D</button>
+          <button type="button" class="chip" role="radio" data-per="30">30D</button>
+          <button type="button" class="chip" role="radio" data-per="tudo">TUDO</button>
+        </div>
+      </div>
+      <div id="vil-corpo"></div>
+      <button type="button" class="link mais" id="vil-ver">Ver ranking completo →</button>
+    </div>
+
     <div class="card" id="ult-int" hidden>
       <h2>📊 ÚLTIMO INTERVALO</h2>
       <div id="ult-int-corpo"></div>
@@ -541,7 +560,7 @@
       <h2>🧾 SIMULAÇÃO DA CONTA</h2>
       <div id="r-sim"></div>
     </div>
-    <div class="card">
+    <div class="card" id="card-rank">
       <h2>🏆 VILÕES</h2>
       <div id="r-rank"></div>
     </div>

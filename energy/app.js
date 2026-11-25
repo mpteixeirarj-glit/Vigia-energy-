@@ -377,6 +377,7 @@
         '<button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir uso">✕</button></li>';
     }).join('') : '<li class="vazio">Nenhum uso registrado hoje.</li>';
     $('u-hoje-total').innerHTML = '<span>Total estimado hoje</span><b>' + kwh(tot) + ' → ' + brl(custo(tot)) + '</b>';
+    renderVilInicio();
     // último intervalo (o mais recente entre todos os medidores)
     var R = calcular(), ultimo = null;
     R.grupos.forEach(function (g) {
@@ -711,6 +712,44 @@
     irPara('pesquisa'); rolarPara('p-leituras');
   };
   $('ult-int-ver').onclick = function () { limparFiltros(); irPara('pesquisa'); rolarPara('card-int'); };
+
+  // ───────── atalho dos vilões no Início ─────────
+  var VIL_KEY = 've_viloes_periodo', VIL_ROT = { hoje: 'hoje', '7': 'nos últimos 7 dias', '30': 'nos últimos 30 dias', tudo: 'em todo o histórico' };
+  var vilPer = '30';
+  try { var vp = localStorage.getItem(VIL_KEY); if (VIL_ROT[vp]) vilPer = vp; } catch (er) {}
+  function vilInicioData() { // 1º dia do período (inclusive), ou '' para tudo
+    if (vilPer === 'tudo') return '';
+    var d = new Date(); if (vilPer !== 'hoje') d.setDate(d.getDate() - (Number(vilPer) - 1));
+    return diaKey(d);
+  }
+  function renderVilInicio() {
+    document.querySelectorAll('#vil-ini .chip').forEach(function (c) { var on = c.dataset.per === vilPer; c.classList.toggle('on', on); c.setAttribute('aria-checked', on); });
+    var R = calcular({ ini: vilInicioData() }), top = R.ranking.slice(0, 3), max = top.length ? top[0].kwh : 0;
+    if (!top.length) {
+      $('vil-corpo').innerHTML = '<p class="vazio">Nenhum uso registrado ' + VIL_ROT[vilPer] + '.</p>';
+      $('vil-ver').hidden = true; return;
+    }
+    $('vil-ver').hidden = false;
+    var resto = R.ranking.slice(3), kResto = resto.reduce(function (s2, r) { return s2 + r.kwh; }, 0);
+    $('vil-corpo').innerHTML = top.map(function (r, i) {
+      var pct = R.usosTotalKwh ? r.kwh / R.usosTotalKwh * 100 : 0;
+      var cor = i === 0 ? 'var(--vermelho)' : 'var(--amarelo)';
+      return '<div class="rank"><div class="top"><span>' + (i + 1) + '. ' + r.icone + ' ' + esc(r.nome) + '</span>' +
+        '<span class="num">' + brl(custo(r.kwh)) + ' · ' + nf(pct, 0) + '%</span></div>' +
+        '<div class="barra"><i style="width:' + (max ? r.kwh / max * 100 : 0).toFixed(1) + '%;--c:' + cor + '"></i></div></div>';
+    }).join('') +
+      '<p class="vil-resumo num">' + kwh(R.usosTotalKwh) + ' · ' + brl(custo(R.usosTotalKwh)) + ' em usos registrados ' + VIL_ROT[vilPer] +
+      (resto.length ? ' · +' + resto.length + ' aparelho' + (resto.length === 1 ? '' : 's') + ' (' + nf(R.usosTotalKwh ? kResto / R.usosTotalKwh * 100 : 0, 0) + '%)' : '') + '</p>';
+  }
+  $('vil-ini').addEventListener('click', function (e) {
+    var c = e.target.closest('.chip'); if (!c) return;
+    vilPer = c.dataset.per; try { localStorage.setItem(VIL_KEY, vilPer); } catch (er) {}
+    renderVilInicio();
+  });
+  $('vil-ver').onclick = function () {
+    limparFiltros(); var ini = vilInicioData(); if (ini) $('p-ini').value = ini;
+    irPara('pesquisa'); rolarPara('card-rank');
+  };
 
   // ───────── navegação ─────────
   var ABAS = ['inicio', 'medidor', 'aparelhos', 'calendario', 'pesquisa', 'config'];

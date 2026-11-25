@@ -1,8 +1,12 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.4.0';
+self.VE_VERSAO = '2.5.0';
 self.VE_NOVIDADES = [
+  { v: '2.5.0', itens: [
+    'Início: card dos vilões (top 3) com período Hoje, 7 dias, 30 dias ou Tudo',
+    'Atalho "Ver ranking completo" abre a Pesquisa no mesmo período'
+  ] },
   { v: '2.4.0', itens: [
     'Nova aba Início: leitura, registro de uso, uso de hoje e último intervalo',
     'Aba Medidor só para medidores: editar, excluir e histórico paginado',
