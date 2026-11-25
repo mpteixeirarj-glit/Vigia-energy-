@@ -1,8 +1,14 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.3.0';
+self.VE_VERSAO = '2.4.0';
 self.VE_NOVIDADES = [
+  { v: '2.4.0', itens: [
+    'Nova aba Início: leitura, registro de uso, uso de hoje e último intervalo',
+    'Aba Medidor só para medidores: editar, excluir e histórico paginado',
+    'Relatório (resumo, simulação, vilões, intervalos) agora dentro da Pesquisa',
+    'Config virou aba; opção de menu inferior ou lateral (☰ ou arrastar da borda)'
+  ] },
   { v: '2.3.0', itens: [
     'Tarifa por faixas de consumo (referência Light nov/2026), editável',
     'Bandeira tarifária (verde, amarela, vermelha P1/P2) com acréscimos editáveis',
