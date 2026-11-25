@@ -125,9 +125,15 @@
     var d = new Date(input.value);
     return isNaN(d) ? new Date().toISOString() : d.toISOString();
   }
-  function toast(msg) {
+  // toast(msg) simples, ou toast(msg, 'DESFAZER', fn) com botão de ação (fica 6 s)
+  function toast(msg, rotulo, acao) {
     var t = $('toast'); t.textContent = msg; t.style.display = 'block';
-    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 2600);
+    if (rotulo && acao) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'toast-acao'; b.textContent = rotulo;
+      b.onclick = function () { t.style.display = 'none'; acao(); };
+      t.appendChild(b);
+    }
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, rotulo ? 6000 : 2600);
   }
   var kwhDe = function (watts, minutos, qtd) { return (watts * minutos / 60) / 1000 * (qtd || 1); };
   var kwhUso = function (u) { return kwhDe(u.watts, u.minutos, u.qtd); };
@@ -210,7 +216,7 @@
 
   // ───────── render ─────────
   function render() {
-    renderMedidores(); renderLeituras(); renderAparelhos(); renderUsos();
+    renderMedidores(); renderLeituras(); renderAparelhos(); renderUsos(); renderRepetir();
     renderCalendario(); renderFiltros();
     if (abaAtual === 'relatorio') renderRelatorio();
     if (!$('p-res').hidden) pesquisar();
@@ -337,6 +343,31 @@
     if (f && f.lampadas === null) { $('u-prev').innerHTML = '<span class="neg">Confira quantidade (inteiro) e potência (W) das lâmpadas.</span>'; return; }
     $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '≈ <span class="num">' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(kwhDe(f.p.watts, f.m, f.q) * D.tarifa) + '</span>' : '';
   }
+
+  /* ↻ Repetir último uso: o último REGISTRADO (ordem de inclusão, não de horário —
+   * quem lança um uso de ontem espera repetir esse). Registra na hora, com "agora". */
+  function ultimoUso() { return D.usos.length ? D.usos[D.usos.length - 1] : null; }
+  function renderRepetir() {
+    var u = ultimoUso();
+    $('u-repetir-card').hidden = !u;
+    if (!u) return;
+    var k = kwhUso(u);
+    $('u-repetir-desc').innerHTML = u.icone + ' ' + esc(u.nome) + '<br><span class="num">' + esc(potTxt(u)) + ' · ' + nf(u.minutos, 0) + ' min · ' +
+      kwh(k) + ' · ' + brl(k * D.tarifa) + '</span>' +
+      (aparelho(u.aparelhoId) ? '' : '<br><span class="neg">Aparelho excluído — repete com os dados gravados.</span>');
+  }
+  function repetirUltimo() {
+    var u = ultimoUso(); if (!u) return;
+    var a = aparelho(u.aparelhoId);
+    var novo = Object.assign({}, u, { id: novoId(), ts: new Date().toISOString(),
+      medidorId: (a && a.medidorId) || u.medidorId || '' });
+    if (u.lampadas) novo.lampadas = u.lampadas.map(function (l) { return { qtd: l.qtd, w: l.w }; });
+    D.usos.push(novo); salvar(); render();
+    toast('REPETIDO: ' + u.nome.toUpperCase() + ' ✓', 'DESFAZER', function () {
+      D.usos = D.usos.filter(function (x) { return x.id !== novo.id; }); salvar(); render(); toast('DESFEITO');
+    });
+  }
+  $('u-repetir').onclick = repetirUltimo;
 
   function renderUsos() {
     var U = ord(D.usos).reverse().slice(0, 200);

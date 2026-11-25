@@ -1,8 +1,12 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.0.1';
+self.VE_VERSAO = '2.1.0';
 self.VE_NOVIDADES = [
+  { v: '2.1.0', itens: [
+    'Botão "↻ Repetir agora" na aba Uso: registra de novo o último uso com o horário atual',
+    'Desfazer por 6 segundos após repetir'
+  ] },
   { v: '2.0.1', itens: [
     'PS5: repouso corrigido para 3 W; novo modo "Menu/streaming" (150 W)',
     'Lâmpadas LED: quantidade × potência de cada, com vários tipos no mesmo registro',

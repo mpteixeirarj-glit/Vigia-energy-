@@ -130,6 +130,9 @@
   .total-box{display:flex; justify-content:space-between; gap:8px; margin-top:12px; padding:10px; border:2px solid var(--amarelo); font-family:var(--mono)}
   .total-box b{color:var(--amarelo); font-weight:400}
 
+  .repetir{border-color:var(--amarelo)}
+  .toast-acao{display:block; margin:8px auto 0; background:var(--bg); color:var(--ciano); border:2px solid var(--bg);
+    font-family:var(--pixel); font-size:9px; padding:8px 12px; cursor:pointer}
   .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
     font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:9; display:none; max-width:90vw; line-height:1.6}
   .so-print{display:none}
@@ -269,6 +272,11 @@
 
   <!-- 📋 USO -->
   <section class="aba" id="aba-uso">
+    <div class="card repetir" id="u-repetir-card" hidden>
+      <div class="dim pixel" style="font-size:8px;line-height:1.6">ÚLTIMO USO</div>
+      <div id="u-repetir-desc" style="margin:6px 0 2px;font-size:14px"></div>
+      <button type="button" class="btn full amarelo" id="u-repetir">↻ REPETIR AGORA</button>
+    </div>
     <form class="card" id="f-uso">
       <h2>📋 REGISTRAR USO</h2>
       <label for="u-ap">Aparelho</label>
