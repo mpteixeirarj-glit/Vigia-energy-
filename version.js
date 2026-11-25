@@ -1,8 +1,14 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.5.0';
+self.VE_VERSAO = '2.6.0';
 self.VE_NOVIDADES = [
+  { v: '2.6.0', itens: [
+    'Login com a conta do Vigia (e-mail/senha ou Google), com "Esqueci minha senha"',
+    'Dados sincronizados na nuvem: recupera em outro celular ou após limpar o navegador',
+    'Funciona offline: envia ao reconectar; indicador ☁ no topo',
+    'Contas antigas deste aparelho migram para a nuvem no primeiro login'
+  ] },
   { v: '2.5.0', itens: [
     'Início: card dos vilões (top 3) com período Hoje, 7 dias, 30 dias ou Tudo',
     'Atalho "Ver ranking completo" abre a Pesquisa no mesmo período'

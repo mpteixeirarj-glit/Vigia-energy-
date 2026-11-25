@@ -41,10 +41,13 @@
   ];
 
   // ───────── dados ─────────
-  function vazio() { return { versao: 2, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [] }; }
+  // coleções sincronizadas (declarada aqui: o boot já usa, antes do bloco da nuvem)
+  var COLS = ['medidores', 'aparelhos', 'leituras', 'usos'];
+  function vazio() { return { versao: 2, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [], apagados: {}, cfgMod: 0 }; }
   function seeds() {
-    return PRE.map(function (p) {
-      return { id: novoId(), nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '', tipo: p.tipo || '',
+    // ids fixos: dois aparelhos que fazem o cadastro inicial não duplicam a lista ao sincronizar
+    return PRE.map(function (p, i) {
+      return { id: 'pre_' + i, nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '', tipo: p.tipo || '',
         potencias: p.potencias.map(function (x) { return { rotulo: x.rotulo, watts: x.watts }; }) };
     });
   }
@@ -81,7 +84,9 @@
       }
     });
     d.usos.forEach(function (u) { if (!(u.qtd > 0)) u.qtd = 1; if (u.potRotulo == null) u.potRotulo = ''; });
-    if (!d.seeded) {
+    if (!d.apagados || typeof d.apagados !== 'object') d.apagados = {};
+    if (!(d.cfgMod >= 0)) d.cfgMod = 0;
+    if (!d.seeded && !ADIAR_SEED) {
       if (!d.aparelhos.length) {
         d.aparelhos = seeds();
       }
@@ -101,16 +106,25 @@
     d.versao = 2;
     return d;
   }
+  /* Conta sem dados neste aparelho, mas logada na nuvem: espera baixar antes de
+   * pré-cadastrar aparelhos ou abrir o cadastro inicial (senão duplicaria tudo). */
+  var ADIAR_SEED = false;
   function carregar() {
-    try { var bruto = JSON.parse(localStorage.getItem(CHAVE)); if (bruto) return migrar(bruto); } catch (e) {}
+    var bruto = null;
+    try { bruto = JSON.parse(localStorage.getItem(CHAVE)); } catch (e) {}
+    if (bruto) return migrar(bruto);
+    ADIAR_SEED = !!sessao.fbUid;
     return migrar(vazio());
   }
   var D = carregar();
-  function salvar() {
+  function salvarLocal() {
     try { localStorage.setItem(CHAVE, JSON.stringify(D)); }
     catch (e) { toast('ERRO AO SALVAR: armazenamento cheio?'); }
   }
-  salvar(); // persiste migração/pré-cadastro
+  /* Toda gravação passa aqui: carimba o que mudou (mod / apagados), grava no
+   * aparelho e agenda o envio para a nuvem. */
+  function salvar() { carimbar(); salvarLocal(); agendarEnvio(); }
+  if (ADIAR_SEED) carimbar(); else salvar(); // persiste migração/pré-cadastro
 
   // ───────── formatação ─────────
   var nf = function (n, c) { return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }); };
@@ -821,7 +835,10 @@
     window.print();
   }
   $('c-pdf').onclick = exportarPdf;
-  function sair() { VigiaAuth.sair(); location.href = '../index.html'; }
+  async function sair() {
+    try { await comTempo(empurrar(), 5000); } catch (e) {}
+    await VigiaAuth.sair(); location.href = '../index.html';
+  }
   $('c-sair').onclick = sair;
 
   // ───────── formulários ─────────
@@ -1056,17 +1073,19 @@
   };
 
   $('c-limpar').onclick = function () {
-    if (!confirm('Apagar TODOS os medidores, leituras, aparelhos e usos desta conta? Não dá para desfazer.')) return;
+    if (!confirm('Apagar TODOS os medidores, leituras, aparelhos e usos desta conta — neste aparelho E NA NUVEM (some também nos outros celulares)? Não dá para desfazer.')) return;
     if (prompt('Digite APAGAR para confirmar') !== 'APAGAR') return toast('CANCELADO');
     localStorage.removeItem(CHAVE); // só a chave deste app/conta — nunca localStorage.clear()
-    D = migrar(vazio()); salvar(); render(); // sem medidor → abre o onboarding
+    var nova = migrar(vazio()); nova.apagados = D.apagados; D = nova; salvar(); render(); // lápides sobem p/ a nuvem; abre o onboarding
   };
 
   // Redefinir: apaga TODAS as chaves do Vigia Energy (todas as contas) neste aparelho.
   // NÃO usa localStorage.clear(): a origem github.io é compartilhada com o Vigia
   // Financeiro e o Auto-Vigia, e clear() apagaria os dados deles também.
-  $('c-reset').onclick = function () {
-    if (!confirm('Isso apaga TODOS os dados do Vigia Energy neste aparelho (todas as contas). Tem certeza?')) return;
+  $('c-reset').onclick = async function () {
+    if (!confirm('Isso apaga TODOS os dados do Vigia Energy NESTE APARELHO (todas as contas) e sai da conta. O que já está na nuvem continua lá e volta quando você entrar de novo. Continuar?')) return;
+    try { await comTempo(empurrar(), 5000); } catch (e) {}
+    await VigiaAuth.sair();
     var ks = [];
     for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf('ve_') === 0) ks.push(k); }
     ks.forEach(function (k) { localStorage.removeItem(k); });
@@ -1225,13 +1244,182 @@
     toast('TUDO PRONTO ✓');
   }
 
+  // ═════════ NUVEM — sincronização com o Firestore ═════════
+  /* Modelo: o aparelho é a fonte de leitura (offline-first); a nuvem é espelho
+   * e ponte entre aparelhos. Nunca sobrescreve em bloco: mescla REGISTRO a
+   * registro — vence o de 'mod' maior; exclusões viajam como lápides
+   * (apagados['colecao:id'] = quando). Documentos em usuarios/{uid}/energia:
+   *   meta            → tarifa, medidores, aparelhos, lápides, flags
+   *   leituras_AAAA-MM, usos_AAAA-MM → um por mês (limite de 1 MB por documento) */
+  var SNAP; // sem inicializador: o carimbar() do boot (acima) já pode tê-lo preenchido
+  function semMod(x) { var o = {}; for (var k in x) if (k !== 'mod') o[k] = x[k]; return JSON.stringify(o); }
+  function tirarSnap(d) {
+    var sn = { c: {}, cfg: JSON.stringify(d.tarifaCfg) };
+    COLS.forEach(function (c) { d[c].forEach(function (x) { sn.c[c + ':' + x.id] = semMod(x); }); });
+    return sn;
+  }
+  function carimbar() {
+    if (!SNAP) { SNAP = tirarSnap(D); return; }
+    var agora = Date.now(), vistos = {};
+    COLS.forEach(function (c) {
+      D[c].forEach(function (x) {
+        var k = c + ':' + x.id; vistos[k] = 1;
+        if (SNAP.c[k] !== semMod(x)) { x.mod = agora; delete D.apagados[k]; }
+      });
+    });
+    Object.keys(SNAP.c).forEach(function (k) { if (!vistos[k]) D.apagados[k] = agora; });
+    if (JSON.stringify(D.tarifaCfg) !== SNAP.cfg) D.cfgMod = agora;
+    SNAP = tirarSnap(D);
+  }
+  function mesclar(L, R) {
+    var out = JSON.parse(JSON.stringify(L));
+    var tomb = Object.assign({}, L.apagados || {}), lim = Date.now() - 400 * 864e5;
+    Object.keys(R.apagados || {}).forEach(function (k) { if (!(tomb[k] >= R.apagados[k])) tomb[k] = R.apagados[k]; });
+    Object.keys(tomb).forEach(function (k) { if (tomb[k] < lim) delete tomb[k]; });
+    COLS.forEach(function (c) {
+      var mapa = {}, ordem = [];
+      (L[c] || []).forEach(function (x) { mapa[x.id] = x; ordem.push(x.id); });
+      (R[c] || []).forEach(function (x) {
+        if (!mapa[x.id]) { mapa[x.id] = x; ordem.push(x.id); }
+        else if ((x.mod || 0) > (mapa[x.id].mod || 0)) mapa[x.id] = x;   // empate: fica o deste aparelho
+      });
+      out[c] = JSON.parse(JSON.stringify(ordem.map(function (id) { return mapa[id]; })
+        .filter(function (x) { var t = tomb[c + ':' + x.id]; return !(t && t >= (x.mod || 0)); })));
+    });
+    // "repetir último uso" usa a ordem de inclusão: reordena pelo carimbo
+    out.usos.sort(function (a, b) { return (a.mod || 0) - (b.mod || 0) || (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0); });
+    if ((R.cfgMod || 0) > (L.cfgMod || 0) && R.tarifaCfg) { out.tarifaCfg = JSON.parse(JSON.stringify(R.tarifaCfg)); out.cfgMod = R.cfgMod; }
+    out.onboarding = !!(L.onboarding || R.onboarding);
+    out.seeded = !!(L.seeded || R.seeded);
+    out.apagados = tomb;
+    return out;
+  }
+  function shards(d) {
+    var out = { meta: JSON.stringify({ versao: d.versao, onboarding: d.onboarding, seeded: d.seeded, tarifaCfg: d.tarifaCfg, cfgMod: d.cfgMod || 0,
+      medidores: d.medidores, aparelhos: d.aparelhos, apagados: d.apagados }) };
+    ['leituras', 'usos'].forEach(function (c) {
+      var g = {};
+      d[c].forEach(function (x) { var k = c + '_' + (String(x.ts || '').slice(0, 7) || 'sem-data'); (g[k] = g[k] || []).push(x); });
+      Object.keys(g).forEach(function (k) { out[k] = JSON.stringify(g[k]); });
+    });
+    return out;
+  }
+  function montar(docs) {
+    var r = { medidores: [], aparelhos: [], leituras: [], usos: [], apagados: {}, cfgMod: 0 };
+    Object.keys(docs).sort().forEach(function (id) {
+      var v; try { v = JSON.parse(docs[id].json); } catch (e) { return; }
+      if (id === 'meta') { ['onboarding', 'seeded', 'tarifaCfg', 'cfgMod', 'medidores', 'aparelhos', 'apagados'].forEach(function (k) { if (v[k] !== undefined) r[k] = v[k]; }); }
+      else if (id.indexOf('leituras_') === 0 && Array.isArray(v)) r.leituras = r.leituras.concat(v);
+      else if (id.indexOf('usos_') === 0 && Array.isArray(v)) r.usos = r.usos.concat(v);
+    });
+    return r;
+  }
+  function hashTxt(t) { var h = 2166136261; for (var i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + '.' + t.length; }
+  function comTempo(pr, ms) { return Promise.race([pr, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('tempo esgotado')); }, ms); })]); }
+
+  var SYNC_KEY = 've_sync_' + sessao.uid, ST = {};
+  try { ST = JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch (e) {}
+  ST.h = ST.h || {}; // hash de cada documento já confirmado na nuvem
+  function salvarST() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(ST)); } catch (e) {} }
+
+  var N = null, FB = null, enviando = false, deNovo = false, tEnvio = null, ultimaPuxada = 0, estadoSync = 'off', erroSync = '';
+  var SYNC_UI = {
+    off: ['☁', 'var(--dim)', 'Nuvem: conectando…'],
+    sync: ['⟳', 'var(--ciano)', 'Sincronizando…'],
+    ok: ['☁', 'var(--ciano)', 'Sincronizado'],
+    pendente: ['☁', 'var(--amarelo)', 'Alterações aguardando envio'],
+    offline: ['📵', 'var(--amarelo)', 'Offline — tudo salvo neste aparelho; envia quando a internet voltar'],
+    login: ['☁', 'var(--dim)', 'Nuvem desativada: você entrou sem internet. Saia e entre de novo com internet para sincronizar.'],
+    outra: ['⚠', 'var(--vermelho)', 'A conta conectada à nuvem neste aparelho é outra. Saia e entre de novo.'],
+    erro: ['⚠', 'var(--vermelho)', 'Erro ao sincronizar']
+  };
+  function setSync(est, det) {
+    estadoSync = est; erroSync = det ? String(det.code || det.message || det) : '';
+    var u = SYNC_UI[est] || SYNC_UI.off, el = $('sync-status');
+    var tit = u[2] + (est === 'ok' && ST.ultimo ? ' às ' + hora(new Date(ST.ultimo).toISOString()) : '') + (erroSync && est === 'erro' ? ': ' + erroSync : '');
+    if (est === 'erro' && /permission-denied/.test(erroSync)) tit = 'A nuvem recusou o acesso (regras do Firestore). Seus dados seguem salvos neste aparelho.';
+    el.textContent = u[0]; el.style.color = u[1]; el.title = tit; el.setAttribute('aria-label', tit);
+    el.classList.toggle('girando', est === 'sync');
+    if ($('c-nuvem')) $('c-nuvem').textContent = tit;
+  }
+  function agendarEnvio() {
+    if (!FB) return;
+    clearTimeout(tEnvio); setSync('pendente');
+    tEnvio = setTimeout(empurrar, 1200);
+  }
+  async function empurrar() {
+    clearTimeout(tEnvio);
+    if (!FB) return;
+    if (enviando) { deNovo = true; return; }
+    enviando = true;
+    try {
+      var sh = shards(D);
+      Object.keys(ST.h).forEach(function (id) { if (!(id in sh)) sh[id] = '[]'; }); // mês que ficou vazio
+      var mud = Object.keys(sh).filter(function (id) { return ST.h[id] !== hashTxt(sh[id]); });
+      if (!mud.length) { setSync('ok'); return; }
+      if (!navigator.onLine) { setSync('offline'); return; }
+      setSync('sync');
+      await Promise.all(mud.map(function (id) {
+        var j = sh[id];
+        return comTempo(N.gravar(FB, id, j), 20000).then(function () { ST.h[id] = hashTxt(j); });
+      }));
+      ST.ultimo = Date.now(); salvarST(); setSync('ok');
+    } catch (e) { salvarST(); setSync(navigator.onLine ? 'erro' : 'offline', e); }
+    finally { enviando = false; if (deNovo) { deNovo = false; empurrar(); } }
+  }
+  async function puxar() {
+    if (!FB) return;
+    if (!navigator.onLine) { setSync('offline'); return; }
+    setSync('sync');
+    try {
+      var docs = await comTempo(N.baixar(FB), 15000);
+      ultimaPuxada = Date.now();
+      Object.keys(docs).forEach(function (id) { ST.h[id] = hashTxt(docs[id].json || ''); });
+      var M = Object.keys(docs).length ? mesclar(D, montar(docs)) : D;
+      ADIAR_SEED = false;
+      M = migrar(JSON.parse(JSON.stringify(M)));
+      if (JSON.stringify(M) !== JSON.stringify(D)) { D = M; salvarLocal(); SNAP = tirarSnap(D); render(); }
+      salvarST();
+      await empurrar(); // sobe o que só existe neste aparelho
+    } catch (e) { setSync(navigator.onLine ? 'erro' : 'offline', e); }
+  }
+  async function iniciarNuvem() {
+    if (N && FB) return puxar();
+    setSync('off');
+    try { N = await VigiaAuth.nuvem(); } catch (e) { setSync('offline'); return; }
+    var u = await comTempo(N.usuarioAtual(), 8000).catch(function () { return null; });
+    if (!u) { setSync('login'); return; }
+    if (VigiaAuth.normEmail(u.email) !== sessao.email) { setSync('outra'); return; }
+    FB = u.uid;
+    if (ST.fbUid !== FB) { ST = { h: {}, fbUid: FB }; salvarST(); }
+    await puxar();
+  }
+  window.addEventListener('online', function () { iniciarNuvem(); });
+  window.addEventListener('offline', function () { if (FB) setSync('offline'); });
+  document.addEventListener('visibilitychange', function () {
+    if (!FB) return;
+    if (document.visibilityState === 'hidden') empurrar();            // saiu do app: envia já
+    else if (Date.now() - ultimaPuxada > 60000) puxar();              // voltou: busca o que mudou em outro aparelho
+  });
+  $('sync-status').onclick = function () {
+    toast($('sync-status').title.toUpperCase().slice(0, 120));
+    if (FB) puxar(); else iniciarNuvem();
+  };
+
   // versão
   $('ver').textContent = 'v' + VERSAO;
   $('c-novidades').innerHTML = 'Versão instalada: <b>' + VERSAO + '</b>' + (self.VE_NOVIDADES || []).map(function (n) {
     return '<div style="margin-top:8px"><b>v' + n.v + '</b><ul>' + n.itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul></div>';
   }).join('');
 
-  render();
+  if (ADIAR_SEED) {
+    $('nuvem-espera').hidden = false;
+    var liberar = function () {
+      if (ADIAR_SEED) { ADIAR_SEED = false; D = migrar(D); salvar(); } // nuvem não respondeu: segue local
+      $('nuvem-espera').hidden = true; render();
+    };
+    Promise.race([iniciarNuvem(), new Promise(function (r) { setTimeout(r, 12000); })]).then(liberar, liberar);
+  } else { render(); iniciarNuvem(); }
   var navPosicao = 'inferior';
   try { navPosicao = localStorage.getItem(NAV_KEY) || 'inferior'; } catch (er) {}
   aplicarNavegacao(navPosicao);
@@ -1245,5 +1433,7 @@
     });
   }
   window.__ve = { calcular: calcular, dados: function () { return D; }, calcularCusto: calcularCusto, detalharCusto: detalharCusto,
-    tarifaPadrao: tarifaPadrao, tar: function () { return TAR; } }; // para testes
+    tarifaPadrao: tarifaPadrao, tar: function () { return TAR; },
+    mesclar: mesclar, shards: shards, montar: montar, sync: function () { return { estado: estadoSync, erro: erroSync, fb: FB, st: ST }; },
+    puxar: puxar, empurrar: empurrar }; // para testes
 })();

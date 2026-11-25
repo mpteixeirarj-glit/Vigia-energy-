@@ -1,16 +1,18 @@
-/* Vigia — autenticação LOCAL (simulada).
+/* Vigia Energy — autenticação.
  *
- * Não há backend: contas e sessão ficam no localStorage deste aparelho.
- * Isso NÃO é segurança real — qualquer pessoa com acesso ao navegador
- * consegue ler os dados. Serve só para separar perfis no mesmo aparelho.
+ * Login principal: Firebase Auth do projeto Vigia (mesmas contas do Vigia Financeiro:
+ * e-mail/senha ou Google), via nuvem.js carregado sob demanda.
  *
- * Atenção: os três Vigias publicados em mpteixeirarj-glit.github.io
- * compartilham a MESMA origem, logo o MESMO localStorage. Por isso todas
- * as chaves daqui usam o prefixo `ve_` e nunca chamamos localStorage.clear().
+ * Cópia local (PBKDF2) da senha: serve só para DESTRAVAR o app sem internet,
+ * em aparelhos onde a pessoa já entrou online. Os dados de energia ficam por conta
+ * em `ve_data_<uid local>` (uid local = hash do e-mail, igual em todo aparelho).
+ *
+ * Mesma origem dos outros Vigias (github.io): só chaves `ve_`, nunca localStorage.clear().
  */
 (function (g) {
   'use strict';
   var K_USERS = 've_auth_users', K_SESSION = 've_session';
+  var BASE = (document.currentScript && document.currentScript.src) || location.href;
 
   function ler(k, padrao) {
     try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : padrao; }
@@ -23,6 +25,9 @@
     }).join('');
   }
   function normEmail(e) { return String(e || '').trim().toLowerCase(); }
+  function comTempo(p, ms, msg) {
+    return Promise.race([p, new Promise(function (_, rej) { setTimeout(function () { rej(new Error(msg)); }, ms); })]);
+  }
 
   async function derivar(senha, saltHex) {
     var enc = new TextEncoder();
@@ -36,33 +41,52 @@
     return hex(d).slice(0, 16);
   }
 
+  var nuvemP = null;
   var Auth = {
     disponivel: function () { return !!(g.crypto && crypto.subtle); },
-    async criarConta(email, senha) {
+    normEmail: normEmail,
+
+    /** Promise do módulo nuvem.js (Firebase). Rejeita sem internet — o app segue local. */
+    nuvem: function () {
+      if (!nuvemP) {
+        nuvemP = comTempo(import(new URL('nuvem.js', BASE).href), 12000, 'Sem conexão com a nuvem.')
+          .catch(function (e) { nuvemP = null; throw e; });
+      }
+      return nuvemP;
+    },
+
+    /** Guarda/atualiza a verificação local da senha (para destravar offline). */
+    async lembrar(email, senha) {
       email = normEmail(email);
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail inválido.');
-      if (String(senha).length < 6) throw new Error('Senha precisa ter ao menos 6 caracteres.');
-      var users = ler(K_USERS, {});
-      if (users[email]) throw new Error('Já existe conta com esse e-mail neste aparelho.');
-      var s = new Uint8Array(16); crypto.getRandomValues(s);
-      var salt = hex(s);
-      users[email] = { salt: salt, hash: await derivar(senha, salt), uid: await uid(email), criado: new Date().toISOString() };
+      var users = ler(K_USERS, {}), s = new Uint8Array(16); crypto.getRandomValues(s);
+      var salt = hex(s), antigo = users[email] || {};
+      users[email] = { salt: salt, hash: await derivar(senha, salt), uid: await uid(email), criado: antigo.criado || new Date().toISOString() };
       gravar(K_USERS, users);
-      return this._abrirSessao(email, users[email].uid);
     },
-    async entrar(email, senha) {
+    temContaLocal: function (email) { return !!ler(K_USERS, {})[normEmail(email)]; },
+    async verificarLocal(email, senha) {
+      var u = ler(K_USERS, {})[normEmail(email)];
+      return !!u && (await derivar(senha, u.salt)) === u.hash;
+    },
+    /** Entrada sem internet: só para quem já entrou online neste aparelho. */
+    async entrarLocal(email, senha) {
+      if (!(await this.verificarLocal(email, senha))) {
+        throw new Error(this.temContaLocal(email) ? 'E-mail ou senha incorretos.'
+          : 'Sem internet. No primeiro acesso neste aparelho é preciso estar online.');
+      }
+      return this.abrirSessao(email, null);
+    },
+    async abrirSessao(email, fbUid) {
       email = normEmail(email);
-      var u = ler(K_USERS, {})[email];
-      // mensagem genérica: não revela se o e-mail existe
-      if (!u || (await derivar(senha, u.salt)) !== u.hash) throw new Error('E-mail ou senha incorretos.');
-      return this._abrirSessao(email, u.uid);
-    },
-    _abrirSessao: function (email, id) {
-      var s = { email: email, uid: id, desde: new Date().toISOString() };
+      var s = { email: email, uid: await uid(email), fbUid: fbUid || null, desde: new Date().toISOString() };
       gravar(K_SESSION, s); return s;
     },
     sessao: function () { return ler(K_SESSION, null); },
-    sair: function () { localStorage.removeItem(K_SESSION); }
+    /** Sai do Energy (sessão local + Firebase do Energy). Não afeta o Vigia Financeiro. */
+    sair: function () {
+      localStorage.removeItem(K_SESSION);
+      return comTempo(this.nuvem().then(function (n) { return n.sair(); }), 4000, 't').catch(function () {});
+    }
   };
   g.VigiaAuth = Auth;
 })(window);

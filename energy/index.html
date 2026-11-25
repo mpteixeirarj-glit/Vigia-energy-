@@ -135,6 +135,12 @@
   .toast-acao{display:block; margin:8px auto 0; background:var(--bg); color:var(--ciano); border:2px solid var(--bg);
     font-family:var(--pixel); font-size:9px; padding:8px 12px; cursor:pointer}
   /* tarifa */
+  .sync{background:none; border:0; font-size:14px; line-height:1; padding:2px 4px; cursor:pointer; min-width:24px}
+  .sync.girando{animation:girar 1s steps(8) infinite}
+  @keyframes girar{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.sync.girando{animation:none}}
+  .nuvem-espera{position:fixed; inset:0; z-index:70; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px}
+  .nuvem-espera p{font-size:9px; color:var(--dim)}
   .badge-band{background:var(--bg); border:2px solid var(--c, var(--verde)); color:var(--c, var(--verde)); font-family:var(--pixel);
     font-size:7px; padding:4px 6px; cursor:pointer; white-space:nowrap; line-height:1.2}
   .badge-band:hover{background:var(--c); color:var(--bg)}
@@ -349,6 +355,8 @@
   </div>
 </div>
 
+<div id="nuvem-espera" class="nuvem-espera" hidden role="status"><div class="sync girando" style="font-size:40px;color:var(--ciano)">⟳</div><p class="pixel">BUSCANDO SEUS DADOS NA NUVEM…</p></div>
+
 <header>
   <div class="hl1">
     <span class="olho" aria-hidden="true">
@@ -371,6 +379,7 @@
   <div class="hl2">
     <span class="ver" id="ver"></span>
     <button type="button" class="badge-band" id="hdr-band" aria-label="Bandeira tarifária atual"></button>
+    <button type="button" class="sync" id="sync-status" aria-label="Status da sincronização">☁</button>
     <time class="relogio" id="relogio"></time>
   </div>
 </header>
@@ -640,14 +649,16 @@
     <div class="card">
       <h2>👤 CONTA</h2>
       <p class="dim" style="font-size:12px" id="c-conta"></p>
+      <p style="font-size:12px;margin-top:6px">☁ <span id="c-nuvem" class="dim"></span></p>
+      <p class="dim" style="font-size:12px;margin-top:6px">Mesma conta do Vigia Financeiro. Os dados de energia ficam neste aparelho e numa área própria da nuvem; o Financeiro não os lê.</p>
       <button class="btn full" id="c-sair">SAIR DA CONTA</button>
     </div>
     <div class="card">
       <h2>⚠️ ZONA DE PERIGO</h2>
       <button class="btn full perigo" id="c-limpar">LIMPAR DADOS DESTA CONTA</button>
-      <p class="dim" style="font-size:12px;margin-top:6px">Apaga medidores, leituras, aparelhos e usos. O cadastro inicial aparece de novo.</p>
+      <p class="dim" style="font-size:12px;margin-top:6px">Apaga medidores, leituras, aparelhos e usos — aqui e na nuvem. O cadastro inicial aparece de novo.</p>
       <button class="btn full perigo" id="c-reset">REDEFINIR APP (APAGAR TUDO)</button>
-      <p class="dim" style="font-size:12px;margin-top:6px">Apaga todas as contas e dados do Vigia Energy neste aparelho. Não mexe no Vigia Financeiro nem no Auto-Vigia.</p>
+      <p class="dim" style="font-size:12px;margin-top:6px">Apaga todas as contas e dados do Vigia Energy neste aparelho e sai. A nuvem é mantida. Não mexe no Vigia Financeiro nem no Auto-Vigia.</p>
     </div>
     <div class="card">
       <h2>ℹ️ SOBRE</h2>
