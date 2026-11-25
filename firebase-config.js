@@ -7,4 +7,11 @@
  *
  * Desde a v2.6.2 o Energy NÃO usa mais o projeto do Vigia Financeiro.
  */
-self.VE_FIREBASE_CONFIG = null;
+self.VE_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAod3_mIMlfWtV-tpowIvad8DxIEv6HfcI',
+  authDomain: 'vigia-energy.firebaseapp.com',
+  projectId: 'vigia-energy',
+  storageBucket: 'vigia-energy.firebasestorage.app',
+  messagingSenderId: '77320476744',
+  appId: '1:77320476744:web:ff995f3c0e5cc02ee9207d'
+};
