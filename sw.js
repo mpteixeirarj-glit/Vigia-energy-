@@ -2,7 +2,7 @@
  * Navegação: network-first (pega versão nova quando há rede, cai no cache offline).
  * Assets: cache-first. Só respostas same-origin `basic` são guardadas.
  * A CADA atualização: suba VERSAO aqui E VE_VERSAO em version.js (devem ser iguais). */
-var VERSAO = 've-2.1.0';
+var VERSAO = 've-2.2.0';
 var ARQUIVOS = [
   './', 'index.html', 'common.css', 'auth.js', 'version.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'fonts/press-start-2p.woff2',

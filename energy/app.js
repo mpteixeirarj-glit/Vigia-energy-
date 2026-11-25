@@ -41,7 +41,13 @@
   ];
 
   // ───────── dados ─────────
-  function vazio() { return { versao: 2, tarifa: 1, seeded: false, medidores: [], leituras: [], aparelhos: [], usos: [] }; }
+  function vazio() { return { versao: 2, tarifa: 1, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [] }; }
+  function seeds() {
+    return PRE.map(function (p) {
+      return { id: novoId(), nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '', tipo: p.tipo || '',
+        potencias: p.potencias.map(function (x) { return { rotulo: x.rotulo, watts: x.watts }; }) };
+    });
+  }
   function novoId() {
     var a = new Uint32Array(2); crypto.getRandomValues(a);
     return a[0].toString(36) + a[1].toString(36);
@@ -52,6 +58,7 @@
    *  - usos ganham qtd=1
    *  - pré-cadastro só se a lista de aparelhos estiver vazia e nunca tiver sido semeada */
   function migrar(d) {
+    var tinhaFlag = !!(d && Object.prototype.hasOwnProperty.call(d, 'onboarding'));
     d = Object.assign(vazio(), d || {});
     ['medidores', 'leituras', 'aparelhos', 'usos'].forEach(function (k) { if (!Array.isArray(d[k])) d[k] = []; });
     var orfas = d.leituras.filter(function (l) { return !l.medidorId; });
@@ -76,13 +83,12 @@
     d.usos.forEach(function (u) { if (!(u.qtd > 0)) u.qtd = 1; if (u.potRotulo == null) u.potRotulo = ''; });
     if (!d.seeded) {
       if (!d.aparelhos.length) {
-        d.aparelhos = PRE.map(function (p) {
-          return { id: novoId(), nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '', tipo: p.tipo || '',
-            potencias: p.potencias.map(function (x) { return { rotulo: x.rotulo, watts: x.watts }; }) };
-        });
+        d.aparelhos = seeds();
       }
       d.seeded = true;
     }
+    // contas anteriores à v2.2 que já têm medidor não passam pelo onboarding
+    if (!tinhaFlag) d.onboarding = d.medidores.length > 0;
     d.versao = 2;
     return d;
   }
@@ -216,6 +222,8 @@
 
   // ───────── render ─────────
   function render() {
+    if (precisaOnboarding()) { mostrarOnboarding(); return; }
+    fecharOnboarding();
     renderMedidores(); renderLeituras(); renderAparelhos(); renderUsos(); renderRepetir();
     renderCalendario(); renderFiltros();
     if (abaAtual === 'relatorio') renderRelatorio();
@@ -236,7 +244,7 @@
     var M = D.medidores;
     $('m-lista').innerHTML = M.length ? M.map(function (m) {
       var n = D.leituras.filter(function (l) { return l.medidorId === m.id; }).length;
-      return '<li><span class="ic">📟</span><span class="info"><b>' + esc(m.nome) + '</b><small class="num">multiplicador ×' + nf(m.mult, 2) +
+      return '<li><span class="ic">📟</span><span class="info"><b>' + esc(m.nome) + '</b><small class="num">' + (m.distribuidora ? esc(m.distribuidora) + ' · ' : '') + 'multiplicador ×' + nf(m.mult, 2) +
         ' · ' + n + ' leitura' + (n === 1 ? '' : 's') + '</small></span><button type="button" class="x" data-del-m="' + m.id + '" aria-label="Excluir medidor">✕</button></li>';
     }).join('') : '<li class="vazio">Nenhum medidor cadastrado.</li>';
     // leitura: dropdown só se houver mais de um
@@ -574,8 +582,8 @@
     if (!nome) return toast('INFORME O NÚMERO/ID');
     if (!(mult > 0 && mult <= 10000)) return toast('MULTIPLICADOR INVÁLIDO');
     if (D.medidores.some(function (m) { return m.nome.toLowerCase() === nome.toLowerCase(); })) return toast('MEDIDOR JÁ CADASTRADO');
-    D.medidores.push({ id: novoId(), nome: nome, mult: mult }); salvar();
-    $('m-nome').value = ''; $('m-mult').value = '1';
+    D.medidores.push({ id: novoId(), nome: nome, mult: mult, distribuidora: $('m-dist').value }); salvar();
+    $('m-nome').value = ''; $('m-mult').value = '1'; $('m-dist').value = '';
     render(); toast('MEDIDOR ADICIONADO ✓');
   };
 
@@ -673,7 +681,8 @@
     else if (d.delU && confirm('Excluir este registro de uso?')) D.usos = D.usos.filter(function (x) { return x.id !== d.delU; });
     else if (d.delM) {
       var n = D.leituras.filter(function (l) { return l.medidorId === d.delM; }).length;
-      if (!confirm('Excluir este medidor?' + (n ? ' As ' + n + ' leituras dele são mantidas como "Medidor removido".' : ''))) return;
+      if (!confirm('Excluir este medidor?' + (n ? ' As ' + n + ' leituras dele são mantidas como "Medidor removido".' : '') +
+        (D.medidores.length === 1 ? '\n\nÉ o único medidor: o app vai pedir o cadastro inicial de novo.' : ''))) return;
       D.medidores = D.medidores.filter(function (x) { return x.id !== d.delM; });
     } else return;
     salvar(); render();
@@ -710,14 +719,145 @@
     if (!confirm('Apagar TODOS os medidores, leituras, aparelhos e usos desta conta? Não dá para desfazer.')) return;
     if (prompt('Digite APAGAR para confirmar') !== 'APAGAR') return toast('CANCELADO');
     localStorage.removeItem(CHAVE); // só a chave deste app/conta — nunca localStorage.clear()
-    var d = vazio(); d.seeded = true; // não ressuscita a lista pré-cadastrada
-    D = migrar(d); salvar(); render(); toast('DADOS APAGADOS');
+    D = migrar(vazio()); salvar(); render(); // sem medidor → abre o onboarding
+  };
+
+  // Redefinir: apaga TODAS as chaves do Vigia Energy (todas as contas) neste aparelho.
+  // NÃO usa localStorage.clear(): a origem github.io é compartilhada com o Vigia
+  // Financeiro e o Auto-Vigia, e clear() apagaria os dados deles também.
+  $('c-reset').onclick = function () {
+    if (!confirm('Isso apaga TODOS os dados do Vigia Energy neste aparelho (todas as contas). Tem certeza?')) return;
+    var ks = [];
+    for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf('ve_') === 0) ks.push(k); }
+    ks.forEach(function (k) { localStorage.removeItem(k); });
+    try { sessionStorage.removeItem('ve_aba'); } catch (er) {}
+    location.reload();
   };
 
   // preenche o datetime com "agora" quando o usuário abre o ajuste
   document.querySelectorAll('details').forEach(function (d) {
-    d.addEventListener('toggle', function () { var i = d.querySelector('input'); if (d.open && !i.value) i.value = agoraLocal(); });
+    d.addEventListener('toggle', function () { var i = d.querySelector('input[type=datetime-local]'); if (d.open && i && !i.value) i.value = agoraLocal(); });
   });
+
+
+  // ═════════ ONBOARDING (4 passos; bloqueia o app até concluir) ═════════
+  function precisaOnboarding() { return !D.onboarding || !D.medidores.length; }
+  var onb = null, onbRelogio = null;
+  var onbValida = {
+    1: function () {
+      if (!$('o-codigo').value.trim()) return 'Informe o número do medidor.';
+      if (!$('o-dist').value) return 'Selecione a distribuidora.';
+      var m = $('o-mult').value.trim() === '' ? 1 : numero($('o-mult').value);
+      if (!(m > 0 && m <= 10000)) return 'Multiplicador inválido.';
+      return '';
+    },
+    2: function () { return numero($('o-leitura').value) >= 0 ? '' : 'Digite a leitura do display (só números).'; },
+    3: function () { return onb.aps.some(function (x) { return x.on; }) ? '' : 'Mantenha pelo menos 1 aparelho marcado.'; },
+    4: function () { var t = numero($('o-tarifa').value); return t > 0 && t < 20 ? '' : 'Informe o valor do kWh (ex: 1,10).'; }
+  };
+  function mostrarOnboarding() {
+    document.body.classList.add('onb-on');
+    $('onb').hidden = false;
+    if (onb) return; // já aberto: não reinicia o que foi digitado
+    var base = D.aparelhos.length ? D.aparelhos : seeds();
+    onb = { passo: 1, ts: null, aps: base.map(function (a) { return { ap: a, on: true }; }) };
+    $('o-codigo').value = ''; $('o-dist').value = ''; $('o-mult').value = '1';
+    $('o-leitura').value = ''; $('o-tarifa').value = D.tarifa && D.tarifa !== 1 ? nf(D.tarifa, 2) : '';
+    renderOnbAps(); irPasso(1);
+    clearInterval(onbRelogio);
+    onbRelogio = setInterval(function () { if (onb && onb.passo === 2) $('o-agora').textContent = agoraTxt(); }, 1000);
+  }
+  function fecharOnboarding() {
+    if (!onb && $('onb').hidden) return;
+    onb = null; clearInterval(onbRelogio);
+    $('onb').hidden = true; document.body.classList.remove('onb-on');
+  }
+  function agoraTxt() { var d = new Date(); return DIAS[d.getDay()] + ', ' + d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR'); }
+  function potResumo(a) {
+    if (ehLamp(a)) return 'lâmpadas: qtd. × W';
+    return a.potencias.length > 1 ? 'múltiplas potências (' + faixaW(a) + ')' : nf(a.potencias[0].watts, 0) + ' W';
+  }
+  function renderOnbAps() {
+    $('o-aps').innerHTML = onb.aps.length ? onb.aps.map(function (x, i) {
+      return '<li data-i="' + i + '" class="' + (x.on ? '' : 'off') + '"><input type="checkbox" ' + (x.on ? 'checked' : '') + ' aria-label="Tenho ' + esc(x.ap.nome) + '">' +
+        '<span class="ic">' + x.ap.icone + '</span><span class="info"><b>' + esc(x.ap.nome) + '</b><small class="num">' + esc(potResumo(x.ap)) + '</small></span>' +
+        '<button type="button" class="x o-rem" aria-label="Remover da lista">✕</button></li>';
+    }).join('') : '<li class="vazio">Lista vazia — adicione ao menos um aparelho abaixo.</li>';
+    atualizaOnb();
+  }
+  function irPasso(n) {
+    onb.passo = n;
+    $('onb-trilho').style.transform = 'translateX(' + (-(n - 1) * 25) + '%)';
+    $('onb-passo').textContent = 'PASSO ' + n + ' DE 4';
+    document.querySelectorAll('.onb-barra i').forEach(function (b, i) { b.classList.toggle('on', i < n); });
+    document.querySelectorAll('.onb-tela').forEach(function (t) { t.setAttribute('aria-hidden', t.dataset.passo == n ? 'false' : 'true'); t.inert = t.dataset.passo != n; });
+    $('onb-voltar').style.visibility = n === 1 ? 'hidden' : 'visible';
+    $('onb-prox').textContent = n === 4 ? '✓ COMEÇAR A USAR O VIGIA ENERGY' : 'PRÓXIMO →';
+    if (n === 2) $('o-agora').textContent = agoraTxt();
+    if (n === 4) { var d = $('o-dist').value; $('o-dist-txt').textContent = d || '—'; }
+    $('onb-erro').textContent = '';
+    atualizaOnb();
+    var tela = document.querySelector('.onb-tela[data-passo="' + n + '"]');
+    tela.scrollTop = 0;
+    setTimeout(function () { var i = tela.querySelector('[data-obrig]'); if (i && !i.value) i.focus({ preventScroll: true }); }, 280);
+  }
+  function atualizaOnb() {
+    if (!onb) return;
+    var msg = onbValida[onb.passo]();
+    $('onb-prox').classList.toggle('desab', !!msg);
+    $('onb-prox').setAttribute('aria-disabled', msg ? 'true' : 'false');
+    $('onb-prox').title = msg;
+  }
+  $('onb').addEventListener('input', atualizaOnb);
+  $('onb').addEventListener('change', atualizaOnb);
+  $('onb').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target.matches('input:not([type=checkbox])')) {
+      e.preventDefault();
+      if (e.target.id === 'o-ap-nome' || e.target.id === 'o-ap-w') $('o-ap-add').click(); else $('onb-prox').click();
+    }
+  });
+  $('o-aps').addEventListener('click', function (e) {
+    var li = e.target.closest('li[data-i]'); if (!li) return;
+    var i = Number(li.dataset.i);
+    if (e.target.closest('.o-rem')) { e.stopPropagation(); onb.aps.splice(i, 1); }
+    else onb.aps[i].on = !onb.aps[i].on;
+    renderOnbAps();
+  });
+  $('o-ap-add').onclick = function () {
+    var nome = $('o-ap-nome').value.trim(), w = numero($('o-ap-w').value);
+    if (!nome) { $('onb-erro').textContent = 'Informe o nome do aparelho.'; return; }
+    if (!(w > 0 && w <= 50000)) { $('onb-erro').textContent = 'Potência inválida (1 a 50000 W).'; return; }
+    onb.aps.push({ on: true, ap: { id: novoId(), nome: nome, icone: '🔌', obs: '', medidorId: '', tipo: '', potencias: [{ rotulo: 'Normal', watts: w }] } });
+    $('o-ap-nome').value = ''; $('o-ap-w').value = ''; $('onb-erro').textContent = '';
+    renderOnbAps();
+    $('o-aps').lastElementChild.scrollIntoView({ block: 'nearest' });
+  };
+  $('onb-voltar').onclick = function () { if (onb && onb.passo > 1) irPasso(onb.passo - 1); };
+  $('onb-prox').onclick = function () {
+    if (!onb) return;
+    var msg = onbValida[onb.passo]();
+    if (msg) { $('onb-erro').textContent = msg; return; }
+    if (onb.passo === 2) onb.ts = new Date().toISOString(); // momento em que confirmou a leitura
+    if (onb.passo < 4) { irPasso(onb.passo + 1); return; }
+    concluirOnboarding();
+  };
+  $('o-imp').onclick = function () { $('c-arq').click(); };
+
+  function concluirOnboarding() {
+    var codigo = $('o-codigo').value.trim(), dist = $('o-dist').value;
+    var mult = $('o-mult').value.trim() === '' ? 1 : numero($('o-mult').value);
+    var m = { id: novoId(), nome: dist && dist !== 'Outra' ? dist + ' ' + codigo : codigo, codigo: codigo, distribuidora: dist, mult: mult };
+    // só grava no final (nada é salvo se o usuário sair no meio)
+    D.medidores.push(m);
+    D.leituras.push({ id: novoId(), ts: onb.ts || new Date().toISOString(), kwh: numero($('o-leitura').value), medidorId: m.id });
+    D.aparelhos = onb.aps.filter(function (x) { return x.on; }).map(function (x) { return x.ap; });
+    D.seeded = true;
+    D.tarifa = numero($('o-tarifa').value);
+    D.onboarding = true;
+    salvar();
+    render(); irPara('medidor');
+    toast('TUDO PRONTO ✓');
+  }
 
   // versão
   $('ver').textContent = 'v' + VERSAO;

@@ -133,8 +133,41 @@
   .repetir{border-color:var(--amarelo)}
   .toast-acao{display:block; margin:8px auto 0; background:var(--bg); color:var(--ciano); border:2px solid var(--bg);
     font-family:var(--pixel); font-size:9px; padding:8px 12px; cursor:pointer}
+  /* onboarding */
+  .onb{position:fixed; inset:0; z-index:50; background:var(--bg); display:flex; flex-direction:column; overflow:hidden;
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom)}
+  body.onb-on{overflow:hidden}
+  body.onb-on header, body.onb-on nav, body.onb-on main{visibility:hidden}
+  .onb-top{padding:14px 16px 0; max-width:560px; width:100%; margin:0 auto}
+  .onb-barra{display:grid; grid-template-columns:repeat(4,1fr); gap:4px}
+  .onb-barra i{height:6px; background:var(--borda)}
+  .onb-barra i.on{background:var(--ciano)}
+  .onb-meta{display:flex; justify-content:space-between; align-items:center; margin-top:10px}
+  .onb-meta .pixel{font-size:9px; color:var(--dim)}
+  .onb-trilho{flex:1; display:flex; width:400%; transition:transform .25s steps(5); min-height:0}
+  @media (prefers-reduced-motion:reduce){.onb-trilho{transition:none}}
+  .onb-tela{width:25%; overflow-y:auto; padding:18px 16px 24px}
+  .onb-tela > *{max-width:528px; margin-left:auto; margin-right:auto}
+  .onb-tela h2{font-size:13px; line-height:1.7}
+  .onb-inst{font-size:15px; margin-bottom:6px}
+  .onb input,.onb select{padding:12px; font-size:16px; min-height:48px}
+  .onb-av summary{font-size:14px; color:var(--ciano); margin-top:16px}
+  .onb-av summary{list-style:none} .onb-av summary::-webkit-details-marker{display:none}
+  .onb-av[open] summary{opacity:.7}
+  .onb-alt{margin-top:22px; font-size:13px; color:var(--dim)}
+  .onb-relogio{margin-top:14px; padding:12px; border:2px solid var(--ciano); color:var(--dim); font-size:14px}
+  .onb-relogio b{color:var(--ciano); font-weight:400; font-size:16px}
+  .onb-dist{margin:14px 0 8px; font-size:14px} .onb-dist b{color:var(--amarelo); font-weight:400}
+  .onb-aps li{cursor:pointer}
+  .onb-aps input[type=checkbox]{width:22px; height:22px; min-height:0; accent-color:var(--ciano); flex:none}
+  .onb-aps li.off .info{opacity:.45; text-decoration:line-through}
+  .onb-erro{text-align:center; padding:0 16px; min-height:0}
+  .onb-acoes{display:flex; gap:10px; padding:12px 16px 16px; max-width:560px; width:100%; margin:0 auto}
+  .onb-acoes .btn{flex:1; padding:16px 10px}
+  .onb-acoes #onb-prox{flex:2}
+  .btn.desab{opacity:.4; pointer-events:none}
   .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
-    font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:9; display:none; max-width:90vw; line-height:1.6}
+    font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:60; display:none; max-width:90vw; line-height:1.6}
   .so-print{display:none}
   .novidades{font-size:12px; color:var(--dim); margin-top:8px}
   .novidades b{color:var(--ciano); font-weight:400; font-family:var(--mono)}
@@ -167,6 +200,70 @@
 </style>
 </head>
 <body>
+<!-- ═══ ONBOARDING (bloqueia o app até concluir) ═══ -->
+<div id="onb" class="onb" hidden role="dialog" aria-modal="true" aria-labelledby="onb-titulo">
+  <div class="onb-top">
+    <div class="onb-barra" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="onb-meta"><span class="pixel" id="onb-passo">PASSO 1 DE 4</span><a class="link" href="../index.html">‹ hub</a></div>
+  </div>
+  <div class="onb-trilho" id="onb-trilho">
+    <!-- PASSO 1 -->
+    <section class="onb-tela" data-passo="1">
+      <h2 id="onb-titulo">⚡ SEU MEDIDOR DE LUZ</h2>
+      <p class="onb-inst">Vamos começar identificando seu medidor. Você encontra o número na parte frontal do equipamento.</p>
+      <label for="o-codigo">Número / código do medidor *</label>
+      <input id="o-codigo" maxlength="30" placeholder="Ex: 9055748" autocomplete="off" data-obrig>
+      <label for="o-dist">Distribuidora *</label>
+      <select id="o-dist" data-obrig>
+        <option value="">-- Selecione --</option>
+        <option>Light</option><option>Enel</option><option>Cemig</option><option>Copel</option><option>Elektro</option><option>Outra</option>
+      </select>
+      <details class="onb-av"><summary>▸ Configuração avançada</summary>
+        <p class="dim" style="font-size:13px;margin-top:8px">Na maioria das residências o multiplicador é 1. Verifique na sua conta de luz.</p>
+        <label for="o-mult">Multiplicador</label>
+        <input id="o-mult" class="num" inputmode="decimal" value="1">
+      </details>
+      <p class="onb-alt">Trocou de celular? <button type="button" class="link" id="o-imp">Importar backup (.json)</button></p>
+    </section>
+    <!-- PASSO 2 -->
+    <section class="onb-tela" data-passo="2">
+      <h2>📍 LEITURA INICIAL DO MEDIDOR</h2>
+      <p class="onb-inst">Olhe o display do seu medidor agora e digite o número que aparece. Isso vai ser o ponto de partida do seu controle.</p>
+      <label for="o-leitura">Leitura atual (kWh) *</label>
+      <input id="o-leitura" class="num" inputmode="decimal" placeholder="Ex: 39200" autocomplete="off" data-obrig>
+      <div class="onb-relogio">Registrada em: <b class="num" id="o-agora"></b></div>
+    </section>
+    <!-- PASSO 3 -->
+    <section class="onb-tela" data-passo="3">
+      <h2>🔌 SEUS APARELHOS</h2>
+      <p class="onb-inst">Já pré-carregamos os aparelhos mais comuns. Confirme os que você tem em casa e remova os que não usa. Você pode adicionar mais depois.</p>
+      <ul class="lista onb-aps" id="o-aps"></ul>
+      <div class="sep"></div>
+      <label>+ Adicionar aparelho personalizado</label>
+      <div class="linha">
+        <div><input id="o-ap-nome" maxlength="60" placeholder="Nome" aria-label="Nome do aparelho"></div>
+        <div class="estreito"><input id="o-ap-w" class="num" inputmode="numeric" placeholder="W" aria-label="Potência em watts"></div>
+      </div>
+      <button type="button" class="btn full" id="o-ap-add">ADICIONAR</button>
+      <p class="dim" style="font-size:13px;margin-top:10px">Não se preocupe — você pode editar tudo isso depois.</p>
+    </section>
+    <!-- PASSO 4 -->
+    <section class="onb-tela" data-passo="4">
+      <h2>💰 TARIFA DE ENERGIA</h2>
+      <p class="onb-inst">Informe o valor do kWh cobrado pela sua distribuidora. Você encontra esse número na sua conta de luz, na seção de tarifas.</p>
+      <label for="o-tarifa">Valor do kWh (R$) *</label>
+      <input id="o-tarifa" class="num" inputmode="decimal" placeholder="Ex: 1,10" autocomplete="off" data-obrig>
+      <p class="onb-dist">Distribuidora: <b id="o-dist-txt"></b></p>
+      <p class="dim" style="font-size:13px">Dúvida? Divida o valor total da sua última conta pelo total de kWh consumidos.</p>
+    </section>
+  </div>
+  <div class="onb-erro erro" id="onb-erro" role="alert"></div>
+  <div class="onb-acoes">
+    <button type="button" class="btn" id="onb-voltar">← VOLTAR</button>
+    <button type="button" class="btn amarelo" id="onb-prox">PRÓXIMO →</button>
+  </div>
+</div>
+
 <header>
   <div class="hl1">
     <span class="olho" aria-hidden="true">
@@ -233,6 +330,8 @@
         <div><label for="m-nome">Número/ID</label><input id="m-nome" maxlength="40" placeholder="ex: Light 9055748" required></div>
         <div class="estreito"><label for="m-mult">Multiplic.</label><input id="m-mult" class="num" inputmode="decimal" value="1" required></div>
       </div>
+      <label for="m-dist">Distribuidora</label>
+      <select id="m-dist"><option value="">—</option><option>Light</option><option>Enel</option><option>Cemig</option><option>Copel</option><option>Elektro</option><option>Outra</option></select>
       <p class="dim" style="font-size:12px;margin-top:6px">Multiplicador: fator impresso no medidor (residencial costuma ser 1).</p>
       <button class="btn full" type="submit">ADICIONAR MEDIDOR</button>
     </form>
@@ -382,7 +481,10 @@
     </div>
     <div class="card">
       <h2>⚠️ ZONA DE PERIGO</h2>
-      <button class="btn full perigo" id="c-limpar">LIMPAR TODOS OS DADOS</button>
+      <button class="btn full perigo" id="c-limpar">LIMPAR DADOS DESTA CONTA</button>
+      <p class="dim" style="font-size:12px;margin-top:6px">Apaga medidores, leituras, aparelhos e usos. O cadastro inicial aparece de novo.</p>
+      <button class="btn full perigo" id="c-reset">REDEFINIR APP (APAGAR TUDO)</button>
+      <p class="dim" style="font-size:12px;margin-top:6px">Apaga todas as contas e dados do Vigia Energy neste aparelho. Não mexe no Vigia Financeiro nem no Auto-Vigia.</p>
       <p class="dim" style="font-size:12px;margin-top:8px" id="c-conta"></p>
     </div>
     <div class="card">
