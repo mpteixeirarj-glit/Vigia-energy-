@@ -1331,7 +1331,8 @@
     offline: ['📵', 'var(--amarelo)', 'Offline — tudo salvo neste aparelho; envia quando a internet voltar'],
     login: ['☁', 'var(--dim)', 'Nuvem desativada: você entrou sem internet. Saia e entre de novo com internet para sincronizar.'],
     outra: ['⚠', 'var(--vermelho)', 'A conta conectada à nuvem neste aparelho é outra. Saia e entre de novo.'],
-    erro: ['⚠', 'var(--vermelho)', 'Erro ao sincronizar']
+    erro: ['⚠', 'var(--vermelho)', 'Erro ao sincronizar'],
+    semnuvem: ['☁', 'var(--dim)', 'Nuvem desligada — dados só neste aparelho (faça backup em Config → Backup)']
   };
   function setSync(est, det) {
     estadoSync = est; erroSync = det ? String(det.code || det.message || det) : '';
@@ -1340,6 +1341,7 @@
     if (est === 'erro' && /permission-denied/.test(erroSync)) tit = 'A nuvem recusou o acesso (regras do Firestore). Seus dados seguem salvos neste aparelho.';
     el.textContent = u[0]; el.style.color = u[1]; el.title = tit; el.setAttribute('aria-label', tit);
     el.classList.toggle('girando', est === 'sync');
+    el.hidden = est === 'semnuvem';
     if ($('c-nuvem')) $('c-nuvem').textContent = tit;
   }
   function agendarEnvio() {
@@ -1386,7 +1388,7 @@
   async function iniciarNuvem() {
     if (N && FB) return puxar();
     setSync('off');
-    try { N = await VigiaAuth.nuvem(); } catch (e) { setSync('offline'); return; }
+    try { N = await VigiaAuth.nuvem(); } catch (e) { setSync(e.code === 'sem-config' ? 'semnuvem' : 'offline'); return; }
     var u = await comTempo(N.usuarioAtual(), 8000).catch(function () { return null; });
     if (!u) { setSync('login'); return; }
     if (VigiaAuth.normEmail(u.email) !== sessao.email) { setSync('outra'); return; }

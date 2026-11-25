@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="../common.css">
 <title>Vigia Energy</title>
 <script src="../version.js"></script>
+<script src="../firebase-config.js"></script>
 <script src="../auth.js"></script>
 <script>
   // Sem sessão → volta para o login (proteção apenas de navegação, não de dados)
@@ -650,7 +651,7 @@
       <h2>👤 CONTA</h2>
       <p class="dim" style="font-size:12px" id="c-conta"></p>
       <p style="font-size:12px;margin-top:6px">☁ <span id="c-nuvem" class="dim"></span></p>
-      <p class="dim" style="font-size:12px;margin-top:6px">Mesma conta do Vigia Financeiro. Os dados de energia ficam neste aparelho e numa área própria da nuvem; o Financeiro não os lê.</p>
+      <p class="dim" style="font-size:12px;margin-top:6px">Os dados ficam neste aparelho e, com a nuvem ativa, também num projeto Firebase só do Vigia Energy.</p>
       <button class="btn full" id="c-sair">SAIR DA CONTA</button>
     </div>
     <div class="card">

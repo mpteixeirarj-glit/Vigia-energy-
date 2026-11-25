@@ -1,14 +1,10 @@
-/* Vigia Energy — acesso ao Firebase (projeto do Vigia, compartilhado com o Financeiro).
+/* Vigia Energy — acesso ao Firebase (projeto EXCLUSIVO do Energy, config em firebase-config.js).
  *
- * Carregado sob demanda (import dinâmico) por auth.js: se não houver rede, o import
- * falha e o app segue 100% local. Nada aqui bloqueia a abertura do app.
- *
- * Isolamento do Vigia Financeiro (mesma origem github.io, mesmo projeto Firebase):
- *  - app com NOME próprio ('vigia-energy'): a sessão do Firebase Auth fica salva sob
- *    outra chave. Entrar/sair aqui não loga nem desloga o Financeiro, e o login
- *    lembrado do Energy não abre o Financeiro (que usa sessão só da aba, de propósito).
- *  - dados em usuarios/{uid}/energia/* — o Financeiro usa usuarios/{uid}/dados e /config.
- *    As regras atuais (usuarios/{uid}/{documento=**} só para o dono) já cobrem.
+ * Carregado sob demanda (import dinâmico) por auth.js: sem rede ou sem config, o import
+ * não acontece/falha e o app segue 100% local. Nada aqui bloqueia a abertura do app.
+ * App Firebase com nome próprio ('vigia-energy'): a sessão fica numa chave só dele,
+ * sem tocar em outros apps Firebase da mesma origem (github.io).
+ * Dados em usuarios/{uid}/energia/* — regras no README.
  */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -20,16 +16,8 @@ import {
   getFirestore, doc, setDoc, getDocs, collection, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
-// Config pública do projeto (a mesma do Vigia Financeiro). Não é segredo:
-// o acesso aos dados é controlado pelas regras do Firestore.
-const firebaseConfig = {
-  apiKey: 'AIzaSyCFCQaU8a96kos470rGh-0yLIQgAv4AiIM',
-  authDomain: 'vigia-56137.firebaseapp.com',
-  projectId: 'vigia-56137',
-  storageBucket: 'vigia-56137.firebasestorage.app',
-  messagingSenderId: '112371837401',
-  appId: '1:112371837401:web:0dc5905e9217de6a4651c8'
-};
+const firebaseConfig = self.VE_FIREBASE_CONFIG;
+if (!firebaseConfig || !firebaseConfig.apiKey) throw Object.assign(new Error('Nuvem não configurada.'), { code: 'sem-config' });
 
 const app = initializeApp(firebaseConfig, 'vigia-energy');
 const auth = getAuth(app);
@@ -68,17 +56,19 @@ export function credencialInvalida(e) {
 export async function entrar(email, senha) { return (await signInWithEmailAndPassword(auth, email, senha)).user; }
 export async function criarConta(email, senha) { return (await createUserWithEmailAndPassword(auth, email, senha)).user; }
 export function redefinirSenha(email) { return sendPasswordResetEmail(auth, email); }
+/* Só popup. O redirect entre github.io e firebaseapp.com é bloqueado pelo isolamento
+ * de armazenamento dos navegadores atuais (iOS/Safari, Chrome) e falha EM SILÊNCIO —
+ * a pessoa volta para a tela de login sem erro nenhum. */
 export async function entrarGoogle() {
   const prov = new GoogleAuthProvider();
   prov.setCustomParameters({ prompt: 'select_account' });
-  // no app instalado (standalone) o popup costuma falhar: vai direto de redirect
-  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-  if (!standalone) {
-    try { return (await signInWithPopup(auth, prov)).user; }
-    catch (e) { if (!/popup-blocked|operation-not-supported/.test(e.code || '')) throw e; }
+  try { return (await signInWithPopup(auth, prov)).user; }
+  catch (e) {
+    if (/popup-blocked|operation-not-supported|web-storage-unsupported/.test(e.code || '')) {
+      throw Object.assign(new Error('O login com Google não abre neste modo. Use e-mail e senha, ou abra o Vigia pelo navegador.'), { code: 'google-indisponivel' });
+    }
+    throw e;
   }
-  await signInWithRedirect(auth, prov);
-  return null; // a página recarrega; o resultado vem em resultadoRedirect()
 }
 export async function resultadoRedirect() { const r = await getRedirectResult(auth); return r ? r.user : null; }
 export function sair() { return signOut(auth); }

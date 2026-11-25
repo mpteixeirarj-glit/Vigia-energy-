@@ -2,9 +2,9 @@
  * Navegação: network-first (pega versão nova quando há rede, cai no cache offline).
  * Assets: cache-first. Só respostas same-origin `basic` são guardadas.
  * A CADA atualização: suba VERSAO aqui E VE_VERSAO em version.js (devem ser iguais). */
-var VERSAO = 've-2.6.1';
+var VERSAO = 've-2.6.2';
 var ARQUIVOS = [
-  './', 'index.html', 'common.css', 'auth.js', 'nuvem.js', 'version.js', 'manifest.json',
+  './', 'index.html', 'common.css', 'firebase-config.js', 'auth.js', 'nuvem.js', 'version.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'fonts/press-start-2p.woff2',
   'energy/', 'energy/index.html', 'energy/app.js'
 ];

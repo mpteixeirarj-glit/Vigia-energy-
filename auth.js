@@ -47,7 +47,9 @@
     normEmail: normEmail,
 
     /** Promise do módulo nuvem.js (Firebase). Rejeita sem internet — o app segue local. */
+    nuvemConfigurada: function () { var c = g.VE_FIREBASE_CONFIG; return !!(c && c.apiKey); },
     nuvem: function () {
+      if (!this.nuvemConfigurada()) return Promise.reject(Object.assign(new Error('Nuvem não configurada.'), { code: 'sem-config' }));
       if (!nuvemP) {
         nuvemP = comTempo(import(new URL('nuvem.js', BASE).href), 12000, 'Sem conexão com a nuvem.')
           .catch(function (e) { nuvemP = null; throw e; });
@@ -68,12 +70,20 @@
       var u = ler(K_USERS, {})[normEmail(email)];
       return !!u && (await derivar(senha, u.salt)) === u.hash;
     },
-    /** Entrada sem internet: só para quem já entrou online neste aparelho. */
+    /** Entrada pela senha guardada neste aparelho (sem internet, ou nuvem desligada). */
     async entrarLocal(email, senha) {
       if (!(await this.verificarLocal(email, senha))) {
-        throw new Error(this.temContaLocal(email) ? 'E-mail ou senha incorretos.'
+        throw new Error(this.temContaLocal(email) || !this.nuvemConfigurada() ? 'E-mail ou senha incorretos.'
           : 'Sem internet. No primeiro acesso neste aparelho é preciso estar online.');
       }
+      return this.abrirSessao(email, null);
+    },
+    /** Conta só neste aparelho (usada enquanto a nuvem estiver desligada). */
+    async criarContaLocal(email, senha) {
+      email = normEmail(email);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail inválido.');
+      if (this.temContaLocal(email)) throw new Error('Já existe conta com esse e-mail neste aparelho. Use "Entrar".');
+      await this.lembrar(email, senha);
       return this.abrirSessao(email, null);
     },
     async abrirSessao(email, fbUid) {
@@ -85,6 +95,7 @@
     /** Sai do Energy (sessão local + Firebase do Energy). Não afeta o Vigia Financeiro. */
     sair: function () {
       localStorage.removeItem(K_SESSION);
+      if (!this.nuvemConfigurada()) return Promise.resolve();
       return comTempo(this.nuvem().then(function (n) { return n.sair(); }), 4000, 't').catch(function () {});
     }
   };

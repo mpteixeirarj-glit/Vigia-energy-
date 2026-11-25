@@ -1,8 +1,13 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.6.1';
+self.VE_VERSAO = '2.6.2';
 self.VE_NOVIDADES = [
+  { v: '2.6.2', itens: [
+    'Login volta a funcionar neste aparelho; nuvem desligada até o projeto exclusivo do Energy',
+    'Energy deixa de usar o Firebase do Vigia Financeiro',
+    'Login com Google só por janela (o redirect falhava em silêncio no app instalado)'
+  ] },
   { v: '2.6.1', itens: ['Novo ícone do app (raio neon)'] },
   { v: '2.6.0', itens: [
     'Login com a conta do Vigia (e-mail/senha ou Google), com "Esqueci minha senha"',

@@ -1,6 +1,6 @@
 # Vigia Energy ⚡
 
-Versão atual: **2.6.1** (exibida no app: topo e ⚙️ → Configurações → Sobre).
+Versão atual: **2.6.2** (exibida no app: topo e ⚙️ → Configurações → Sobre).
 
 PWA offline-first para controle de consumo de energia elétrica residencial. HTML/CSS/JS puro, sem frameworks, sem backend.
 
@@ -13,6 +13,7 @@ index.html        Login local + hub dos três Vigias
 common.css        Estilos compartilhados (pixel art)
 auth.js           Login (Firebase) + destravamento offline (PBKDF2 local)
 nuvem.js          Acesso ao Firebase (carregado sob demanda)
+firebase-config.js Config do projeto Firebase do Energy (null = modo local)
 version.js        Versão do app + lista de novidades
 energy/index.html App Vigia Energy
 energy/app.js     Lógica: medidores, aparelhos multipotência, uso, calendário, pesquisa, relatório, config
@@ -46,16 +47,31 @@ Chave `ve_data_<uid>` (uma por conta):
 Migração v1→v2 automática ao abrir: leituras sem medidor vão para "Medidor principal"
 (ou `desconhecido` se já houver 2+ medidores); aparelhos com `watts` viram `potencias`.
 
-## Nuvem (Firebase) — desde a v2.6
+## Nuvem (Firebase) — projeto exclusivo do Energy
 
-- Projeto Firebase **compartilhado com o Vigia Financeiro** (`vigia-56137`): mesmas contas (e-mail/senha ou Google).
-- App Firebase com **nome próprio** (`vigia-energy`): a sessão do Energy não abre nem fecha a do Financeiro.
-- Dados em `usuarios/{uid}/energia/` — `meta` (tarifa, medidores, aparelhos, lápides) e um documento por mês para
-  `leituras_AAAA-MM` e `usos_AAAA-MM` (limite de 1 MB por documento). O Financeiro usa `usuarios/{uid}/dados` e `/config`.
-- As regras atuais do projeto (`usuarios/{uid}/{documento=**}` só para o dono) já cobrem — nenhuma regra nova.
+Configuração em `firebase-config.js`. Com `null`, o app roda em **modo local** (login e dados só no aparelho).
+
+Para ativar: crie um projeto Firebase só do Energy, ative Authentication (E-mail/senha e Google),
+adicione `mpteixeirarj-glit.github.io` em Authentication → Settings → Authorized domains,
+crie o Firestore e publique estas regras:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /usuarios/{uid}/energia/{doc} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+```
+
+- Dados em `usuarios/{uid}/energia/` — `meta` (tarifa, medidores, aparelhos, lápides) e um documento por mês
+  para `leituras_AAAA-MM` e `usos_AAAA-MM` (limite de 1 MB por documento).
 - **Offline-first**: o app abre e grava sempre no aparelho; a nuvem sincroniza em segundo plano.
-- **Mescla por registro** (vence o `mod` mais recente); exclusões viajam como lápides (`apagados`), então nada "ressuscita".
-- Contas antigas só locais (até v2.5) são criadas na nuvem no primeiro login online, com a mesma senha.
+- **Mescla por registro** (vence o `mod` mais recente); exclusões viajam como lápides (`apagados`).
+- Contas só locais são criadas na nuvem no primeiro login online, com a mesma senha.
+- Login com Google só por janela (popup): o redirect falha em silêncio por causa do isolamento de armazenamento.
 
 ## Dados e limitações
 
