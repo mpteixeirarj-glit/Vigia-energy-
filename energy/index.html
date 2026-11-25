@@ -133,6 +133,29 @@
   .repetir{border-color:var(--amarelo)}
   .toast-acao{display:block; margin:8px auto 0; background:var(--bg); color:var(--ciano); border:2px solid var(--bg);
     font-family:var(--pixel); font-size:9px; padding:8px 12px; cursor:pointer}
+  /* tarifa */
+  .badge-band{background:var(--bg); border:2px solid var(--c, var(--verde)); color:var(--c, var(--verde)); font-family:var(--pixel);
+    font-size:7px; padding:4px 6px; cursor:pointer; white-space:nowrap; line-height:1.2}
+  .badge-band:hover{background:var(--c); color:var(--bg)}
+  .bandeiras{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+  .band-op{display:flex; align-items:center; gap:8px; text-align:left; background:var(--bg); color:var(--txt); border:2px solid var(--borda);
+    padding:10px 8px; cursor:pointer; min-height:56px; font-family:inherit}
+  .band-op .be{font-size:18px; flex:none}
+  .band-op b{display:block; font-weight:400; font-size:13px}
+  .band-op small{display:block; color:var(--dim); font-size:11px}
+  .band-op.on{border-color:var(--c); box-shadow:inset 0 0 0 2px var(--c)}
+  .band-op.on b{color:var(--c)}
+  .tabela.faixas{min-width:300px} .tabela.faixas input{padding:8px; font-size:16px}
+  .tabela.faixas td:first-child{white-space:nowrap; padding-right:8px}
+  .tabela.faixas td:nth-child(2){width:38%} .tabela.faixas td:nth-child(3){width:42%}
+  .tabela.faixas input:disabled{color:var(--dim); border-style:dashed; font-size:12px; padding:8px 4px; -webkit-text-fill-color:var(--dim); opacity:1}
+  .tabela.faixas td:first-child{width:1%}
+  .acrs{display:grid; grid-template-columns:1fr 1fr; gap:4px 10px}
+  .acrs label{margin-top:4px}
+  .rodape-tar{margin-top:12px; padding-top:10px; border-top:2px dashed var(--borda); font-size:11px; line-height:1.7; color:var(--dim); font-family:var(--mono)}
+  .nota-est{font-size:11px; color:var(--dim); line-height:1.5; margin:0 2px 12px}
+  .onb-tab{margin-top:8px; border:2px solid var(--borda)} .onb-tab td{padding:8px}
+
   /* onboarding */
   .onb{position:fixed; inset:0; z-index:50; background:var(--bg); display:flex; flex-direction:column; overflow:hidden;
     padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom)}
@@ -196,6 +219,7 @@
     .tabela td{border-bottom:1px solid #ccc!important}
     .total-box{border:1px solid #000!important}
     .rolagem{overflow:visible} .tabela.larga{min-width:0}
+    .nota-est{color:#444!important}
   }
 </style>
 </head>
@@ -250,11 +274,18 @@
     <!-- PASSO 4 -->
     <section class="onb-tela" data-passo="4">
       <h2>💰 TARIFA DE ENERGIA</h2>
-      <p class="onb-inst">Informe o valor do kWh cobrado pela sua distribuidora. Você encontra esse número na sua conta de luz, na seção de tarifas.</p>
-      <label for="o-tarifa">Valor do kWh (R$) *</label>
-      <input id="o-tarifa" class="num" inputmode="decimal" placeholder="Ex: 1,10" autocomplete="off" data-obrig>
       <p class="onb-dist">Distribuidora: <b id="o-dist-txt"></b></p>
-      <p class="dim" style="font-size:13px">Dúvida? Divida o valor total da sua última conta pelo total de kWh consumidos.</p>
+      <div id="o-tar-light" hidden>
+        <p class="onb-inst">As tarifas da Light já estão configuradas. Você pode ajustá-las depois em Configurações.</p>
+        <table class="tab onb-tab" id="o-tar-tab"></table>
+      </div>
+      <div id="o-tar-edit" hidden>
+        <p class="onb-inst">Informe as tarifas por faixa de consumo da sua distribuidora (estão na sua conta de luz). Os valores abaixo são da Light, só como ponto de partida.</p>
+        <div class="rolagem" id="o-faixas"></div>
+        <h3>BANDEIRA ATUAL</h3>
+        <div class="bandeiras" id="o-band" role="radiogroup" aria-label="Bandeira tarifária"></div>
+        <p class="dim" style="font-size:13px;margin-top:8px">Dúvida? Divida o valor total da sua última conta pelo total de kWh consumidos e use esse valor nas 3 faixas.</p>
+      </div>
     </section>
   </div>
   <div class="onb-erro erro" id="onb-erro" role="alert"></div>
@@ -285,6 +316,7 @@
   </div>
   <div class="hl2">
     <span class="ver" id="ver"></span>
+    <button type="button" class="badge-band" id="hdr-band" aria-label="Bandeira tarifária atual"></button>
     <time class="relogio" id="relogio"></time>
   </div>
   <div class="menu" id="menu" role="menu">
@@ -443,9 +475,14 @@
 
   <!-- 📊 RELATÓRIO (menu ⚙️) -->
   <section class="aba" id="aba-relatorio">
+    <p class="nota-est">⚠️ Estimativa baseada em consumo registrado manualmente e nas tarifas configuradas. Não inclui contribuição de iluminação pública, multas ou créditos da conta real — e confira se as tarifas informadas já incluem ICMS, PIS e COFINS.</p>
     <div class="card">
       <h2>📊 RESUMO</h2>
       <div class="kpis" id="r-kpis"></div>
+    </div>
+    <div class="card">
+      <h2>🧾 SIMULAÇÃO DA CONTA</h2>
+      <div id="r-sim"></div>
     </div>
     <div class="card">
       <h2>🏆 VILÕES</h2>
@@ -460,13 +497,43 @@
 
   <!-- ⚙️ CONFIG (menu ⚙️) -->
   <section class="aba" id="aba-config">
-    <form class="card" id="f-tarifa">
-      <h2>⚙️ TARIFA</h2>
-      <label for="c-tarifa">R$ por kWh (com impostos e bandeira)</label>
-      <input id="c-tarifa" class="num" inputmode="decimal" required>
-      <p class="dim" style="font-size:12px;margin-top:6px">Dica: divida o total da conta (R$) pelo consumo faturado (kWh).</p>
-      <button class="btn full" type="submit">SALVAR TARIFA</button>
-    </form>
+    <div class="card" id="cfg-tarifa">
+      <h2>💰 TARIFA DE ENERGIA</h2>
+      <label for="t-dist">Distribuidora</label>
+      <select id="t-dist"><option>Light</option><option>Enel</option><option>Cemig</option><option>Copel</option><option>Elektro</option><option>Outra</option></select>
+
+      <h3>BANDEIRA ATUAL</h3>
+      <div class="bandeiras" id="t-band" role="radiogroup" aria-label="Bandeira tarifária"></div>
+      <p class="dim" style="font-size:12px;margin-top:8px">A bandeira é definida mensalmente pela ANEEL. Verifique em aneel.gov.br</p>
+
+      <div class="sep"></div>
+      <h3>FAIXAS DE CONSUMO</h3>
+      <div class="rolagem" id="t-faixas"></div>
+      <label for="t-modo">Como aplicar as faixas</label>
+      <select id="t-modo">
+        <option value="progressivo">Progressivo — cada faixa cobra só a sua parte</option>
+        <option value="faixa_unica">Faixa única — a faixa atingida vale para todo o consumo</option>
+      </select>
+      <button type="button" class="btn full" id="t-salvar-faixas">💾 SALVAR TARIFA</button>
+
+      <div class="sep"></div>
+      <h3>ACRÉSCIMOS DE BANDEIRA (R$/KWH)</h3>
+      <div class="acrs" id="t-acr"></div>
+      <button type="button" class="btn full" id="t-salvar-band">💾 SALVAR BANDEIRAS</button>
+
+      <p class="dim" id="t-efetiva" style="font-size:12px;margin-top:12px"></p>
+      <div class="rodape-tar">
+        Valores Light — residencial — vigentes em nov/2026<br>
+        Faixa 1: até 50 kWh → R$ 1,00844/kWh<br>
+        Faixa 2: 51 a 300 kWh → R$ 1,22980/kWh<br>
+        Faixa 3: acima de 300 kWh → R$ 1,32689/kWh<br>
+        Bandeira Amarela: +R$ 0,01885/kWh<br>
+        Bandeira Vermelha P1: +R$ 0,04463/kWh<br>
+        Bandeira Vermelha P2: +R$ 0,07877/kWh<br>
+        Última atualização registrada: <span id="t-atual"></span>
+      </div>
+      <button type="button" class="btn full mini" id="t-restaurar" style="margin-top:10px">RESTAURAR VALORES LIGHT</button>
+    </div>
     <div class="card">
       <h2>📄 RELATÓRIO</h2>
       <button class="btn full amarelo" id="c-pdf">EXPORTAR PDF</button>

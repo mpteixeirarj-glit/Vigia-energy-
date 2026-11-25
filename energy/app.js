@@ -41,7 +41,7 @@
   ];
 
   // ───────── dados ─────────
-  function vazio() { return { versao: 2, tarifa: 1, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [] }; }
+  function vazio() { return { versao: 2, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [] }; }
   function seeds() {
     return PRE.map(function (p) {
       return { id: novoId(), nome: p.nome, icone: p.emoji, obs: p.observacao || '', medidorId: '', tipo: p.tipo || '',
@@ -87,6 +87,15 @@
       }
       d.seeded = true;
     }
+    // v2.3: tarifa única → tarifa por faixas + bandeira. Valor antigo vira a faixa 2
+    // (a mais provável); 1,00 era só o padrão nunca editado → usa a tabela Light.
+    if (!d.tarifaCfg || !Array.isArray(d.tarifaCfg.faixas)) {
+      var cfg = tarifaPadrao();
+      if (typeof d.tarifa === 'number' && d.tarifa > 0 && d.tarifa !== 1) cfg.faixas[1].tarifa = d.tarifa;
+      d.tarifaCfg = cfg;
+    }
+    d.tarifaCfg = Object.assign(tarifaPadrao(), d.tarifaCfg);
+    delete d.tarifa;
     // contas anteriores à v2.2 que já têm medidor não passam pelo onboarding
     if (!tinhaFlag) d.onboarding = d.medidores.length > 0;
     d.versao = 2;
@@ -168,9 +177,77 @@
     return id;
   }
 
+  // ───────── tarifa: faixas + bandeira ─────────
+  var BANDS = ['verde', 'amarela', 'vermelha1', 'vermelha2'];
+  var BAND_UI = {
+    verde: { emoji: '🟢', curto: 'VERDE', cor: 'var(--verde)' },
+    amarela: { emoji: '🟡', curto: 'AMARELA', cor: 'var(--amarelo)' },
+    vermelha1: { emoji: '🔴', curto: 'VERM. P1', cor: 'var(--vermelho)' },
+    vermelha2: { emoji: '🔴🔴', curto: 'VERM. P2', cor: 'var(--vermelho)' }
+  };
+  /* Referência Light — residencial — nov/2026 (valores informados pelo usuário).
+   * As razões entre faixas batem com ICMS do RJ embutido (isento até 50 kWh, ~18%, ~24%). */
+  function tarifaPadrao() {
+    return {
+      distribuidora: 'Light', modo: 'progressivo',
+      faixas: [{ ate: 50, tarifa: 1.00844 }, { ate: 300, tarifa: 1.22980 }, { ate: null, tarifa: 1.32689 }],
+      bandeira: 'verde',
+      bandeiras: {
+        verde: { label: 'Verde', acrescimo: 0 }, amarela: { label: 'Amarela', acrescimo: 0.01885 },
+        vermelha1: { label: 'Vermelha Patamar 1', acrescimo: 0.04463 }, vermelha2: { label: 'Vermelha Patamar 2', acrescimo: 0.07877 }
+      },
+      ultimaAtualizacao: '2026-11-25'
+    };
+  }
+  var cent = function (v) { return Math.round(v * 100 + 1e-9) / 100; };
+  /* Detalhamento da conta para um consumo MENSAL. Cada linha é arredondada a centavos,
+   * como na fatura. modo 'progressivo': cada faixa cobra só a sua parte;
+   * modo 'faixa_unica': a tarifa da faixa atingida vale para todo o consumo. */
+  function detalharCusto(kwhTotal, cfg, bandeira) {
+    cfg = cfg || D.tarifaCfg; bandeira = bandeira || cfg.bandeira;
+    var k = Math.max(0, Number(kwhTotal) || 0), linhas = [], ini = 0;
+    if (cfg.modo === 'faixa_unica') {
+      var f = cfg.faixas.find(function (x) { return x.ate == null || k <= x.ate; }) || cfg.faixas[cfg.faixas.length - 1];
+      var i0 = cfg.faixas.indexOf(f);
+      if (k > 0) linhas.push({ rotulo: 'Faixa ' + (i0 + 1) + ' (todo o consumo)', kwh: k, tarifa: f.tarifa, valor: cent(k * f.tarifa) });
+    } else {
+      cfg.faixas.forEach(function (f, i) {
+        var fim = f.ate == null ? Infinity : f.ate, q = Math.max(0, Math.min(k, fim) - ini);
+        if (q > 0) linhas.push({ rotulo: 'Faixa ' + (i + 1), kwh: q, tarifa: f.tarifa, valor: cent(q * f.tarifa) });
+        ini = fim;
+      });
+    }
+    var base = linhas.reduce(function (s2, l) { return s2 + l.valor; }, 0);
+    var b = cfg.bandeiras[bandeira] || { label: bandeira, acrescimo: 0 };
+    var vb = cent(k * b.acrescimo);
+    return { kwh: k, linhas: linhas, base: cent(base), bandeira: { chave: bandeira, label: b.label, acrescimo: b.acrescimo, valor: vb }, total: cent(base + vb) };
+  }
+  function calcularCusto(kwhTotal, cfg, bandeira) { return detalharCusto(kwhTotal, cfg, bandeira).total; }
+
+  /* Tarifa por faixa só faz sentido sobre o total do MÊS. Para itens isolados (um uso,
+   * um dia, um intervalo) usamos a tarifa média efetiva do mês projetado — assim a soma
+   * das partes bate com a conta do mês. Sem projeção ainda: faixa 2 + bandeira. */
+  var TAR = { efetiva: 1, ref: null };
+  function atualizaTarifa() {
+    var R = calcular(), c = D.tarifaCfg;
+    var ref = R.porDia !== null && R.porDia > 0 ? R.porDia * 30 : null;
+    TAR.ref = ref;
+    TAR.efetiva = ref ? calcularCusto(ref) / ref
+      : c.faixas[1].tarifa + ((c.bandeiras[c.bandeira] || {}).acrescimo || 0);
+    renderBadge();
+  }
+  var custo = function (k) { return k * TAR.efetiva; };
+  function rs5(v) { return 'R$ ' + nf(v, 5); }
+  function renderBadge() {
+    var b = D.tarifaCfg.bandeira, u = BAND_UI[b] || BAND_UI.verde;
+    $('hdr-band').textContent = u.emoji + ' ' + u.curto;
+    $('hdr-band').style.setProperty('--c', u.cor);
+    $('hdr-band').title = 'Bandeira ' + ((D.tarifaCfg.bandeiras[b] || {}).label || b) + ' — toque para configurar';
+  }
+
   // ───────── cálculo do relatório (puro sobre D) ─────────
   function calcular() {
-    var L = ord(D.leituras), U = ord(D.usos), t = D.tarifa;
+    var L = ord(D.leituras), U = ord(D.usos), t = null;
     var ids = [];
     L.forEach(function (l) { if (ids.indexOf(l.medidorId) < 0) ids.push(l.medidorId); });
     var grupos = ids.map(function (id) {
@@ -224,11 +301,12 @@
   function render() {
     if (precisaOnboarding()) { mostrarOnboarding(); return; }
     fecharOnboarding();
+    atualizaTarifa();
     renderMedidores(); renderLeituras(); renderAparelhos(); renderUsos(); renderRepetir();
     renderCalendario(); renderFiltros();
     if (abaAtual === 'relatorio') renderRelatorio();
     if (!$('p-res').hidden) pesquisar();
-    $('c-tarifa').value = nf(D.tarifa, 2);
+    renderCfgTarifa();
     $('c-conta').textContent = 'Conta: ' + sessao.email;
   }
 
@@ -283,8 +361,8 @@
     $('a-lista').innerHTML = A.length ? A.map(function (a) {
       var mx = Math.max.apply(null, a.potencias.map(function (p) { return p.watts; }));
       return '<li><span class="ic">' + a.icone + '</span><span class="info"><b>' + esc(a.nome) + '</b><small class="num">' + faixaW(a) +
-        (ehLamp(a) ? ' · ' + brl(kwhDe(10, 60) * D.tarifa) + '/h por 10 W' :
-          (a.potencias.length > 1 ? ' · ' + a.potencias.length + ' potências' : '') + ' · até ' + brl(kwhDe(mx, 60) * D.tarifa) + '/h') +
+        (ehLamp(a) ? ' · ' + brl(custo(kwhDe(10, 60))) + '/h por 10 W' :
+          (a.potencias.length > 1 ? ' · ' + a.potencias.length + ' potências' : '') + ' · até ' + brl(custo(kwhDe(mx, 60))) + '/h') +
         '</small>' + (D.medidores.length > 1 ? '<select class="sel-med" data-ap-med="' + a.id + '" aria-label="Medidor do aparelho">' +
           '<option value="">— medidor não definido —</option>' + D.medidores.map(function (m) {
             return '<option value="' + m.id + '"' + (m.id === a.medidorId ? ' selected' : '') + '>📟 ' + esc(m.nome) + '</option>';
@@ -349,7 +427,7 @@
     var f = usoDoForm();
     var extra = f && f.lampadas && f.lampadas.length ? '<span class="num">' + esc(f.p.rotulo) + ' = ' + nf(f.p.watts, 0) + ' W</span><br>' : '';
     if (f && f.lampadas === null) { $('u-prev').innerHTML = '<span class="neg">Confira quantidade (inteiro) e potência (W) das lâmpadas.</span>'; return; }
-    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '≈ <span class="num">' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(kwhDe(f.p.watts, f.m, f.q) * D.tarifa) + '</span>' : '';
+    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '≈ <span class="num">' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(custo(kwhDe(f.p.watts, f.m, f.q))) + '</span>' : '';
   }
 
   /* ↻ Repetir último uso: o último REGISTRADO (ordem de inclusão, não de horário —
@@ -361,7 +439,7 @@
     if (!u) return;
     var k = kwhUso(u);
     $('u-repetir-desc').innerHTML = u.icone + ' ' + esc(u.nome) + '<br><span class="num">' + esc(potTxt(u)) + ' · ' + nf(u.minutos, 0) + ' min · ' +
-      kwh(k) + ' · ' + brl(k * D.tarifa) + '</span>' +
+      kwh(k) + ' · ' + brl(custo(k)) + '</span>' +
       (aparelho(u.aparelhoId) ? '' : '<br><span class="neg">Aparelho excluído — repete com os dados gravados.</span>');
   }
   function repetirUltimo() {
@@ -384,27 +462,43 @@
   function linhaUso(u, semExcluir) {
     var k = kwhUso(u);
     return '<li><span class="ic">' + u.icone + '</span><span class="info"><b>' + esc(u.nome) + '</b><small><span class="num">' + esc(potTxt(u)) + '<br>' + nf(u.minutos, 0) +
-      ' min · ' + kwh(k) + ' · ' + brl(k * D.tarifa) + '</span><br>' + dt(u.ts) + '</small></span>' +
+      ' min · ' + kwh(k) + ' · ' + brl(custo(k)) + '</span><br>' + dt(u.ts) + '</small></span>' +
       (semExcluir === true ? '' : '<button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir">✕</button>') + '</li>';
   }
 
   function kpi(rot, v, s) { return '<div class="kpi"><div class="r">' + rot + '</div><div class="v">' + v + '</div>' + (s ? '<div class="s">' + s + '</div>' : '') + '</div>'; }
 
+  function simulacaoHtml(mes) {
+    var c = D.tarifaCfg, ref = mes !== null && mes > 0 ? mes : null;
+    if (!ref) return '<p class="vazio">Registre leituras cobrindo pelo menos meio dia para simular a conta do mês.</p>';
+    var det = detalharCusto(ref);
+    return '<p class="dim" style="font-size:12px">Projeção de <span class="num">' + kwh(ref) + '</span> em 30 dias · ' + esc(c.distribuidora) +
+        ' · cálculo ' + (c.modo === 'faixa_unica' ? 'por faixa única' : 'progressivo') + '</p>' +
+      '<table class="tab" style="margin-top:6px">' + det.linhas.map(function (l) {
+        return '<tr><td>' + l.rotulo + ' <span class="dim num">' + nf(l.kwh, 1) + ' × ' + nf(l.tarifa, 5) + '</span></td><td class="n">' + brl(l.valor) + '</td></tr>';
+      }).join('') +
+      '<tr><td>' + (BAND_UI[det.bandeira.chave] || {}).emoji + ' Bandeira ' + esc(det.bandeira.label) + ' <span class="dim num">' + nf(det.kwh, 1) + ' × ' + nf(det.bandeira.acrescimo, 5) + '</span></td><td class="n">' + brl(det.bandeira.valor) + '</td></tr>' +
+      '<tr><td style="color:var(--amarelo)">Total estimado</td><td class="n" style="color:var(--amarelo)">' + brl(det.total) + '</td></tr></table>' +
+      '<p class="dim num" style="font-size:12px;margin-top:6px">Tarifa média efetiva: ' + rs5(det.total / det.kwh) + '/kWh — usada no custo de cada uso, dia e intervalo.</p>';
+  }
+
   function renderRelatorio() {
-    var R = calcular(), t = D.tarifa;
+    var R = calcular();
+    var mes = R.porDia !== null ? R.porDia * 30 : null, contaMes = mes !== null ? calcularCusto(mes) : null;
     var k = '';
-    k += kpi('MEDIDO TOTAL', R.total ? kwh(R.total) : '—', R.total ? brl(R.total * t) : 'precisa de 2 leituras');
+    k += kpi('MEDIDO TOTAL', R.total ? kwh(R.total) : '—', R.total ? brl(custo(R.total)) : 'precisa de 2 leituras');
     k += kpi('PERÍODO', R.dias ? nf(R.dias, 1) + ' dias' : '—', D.leituras.length + ' leituras · ' + R.grupos.length + ' medidor' + (R.grupos.length === 1 ? '' : 'es'));
-    k += kpi('MÉDIA/DIA', R.porDia !== null ? kwh(R.porDia) : '—', R.porDia !== null ? brl(R.porDia * t) : '');
-    k += kpi('PROJEÇÃO 30 DIAS', R.porDia !== null ? brl(R.porDia * 30 * t) : '—', R.porDia !== null ? kwh(R.porDia * 30) : '');
+    k += kpi('MÉDIA/DIA', R.porDia !== null ? kwh(R.porDia) : '—', contaMes !== null ? brl(contaMes / 30) : '');
+    k += kpi('PROJEÇÃO 30 DIAS', contaMes !== null ? brl(contaMes) : '—', mes !== null ? kwh(mes) : '');
     $('r-kpis').innerHTML = k + (R.porDia !== null && R.diasMin < 3 ? '<p class="dim" style="grid-column:1/-1;font-size:12px">Projeção com menos de 3 dias de dados é pouco confiável.</p>' : '');
 
+    $('r-sim').innerHTML = simulacaoHtml(mes);
     var max = R.ranking.length ? R.ranking[0].kwh : 0;
     $('r-rank').innerHTML = R.ranking.length ? R.ranking.map(function (r, i) {
       var pct = R.usosTotalKwh ? r.kwh / R.usosTotalKwh * 100 : 0;
       var cor = i === 0 ? 'var(--vermelho)' : i < 3 ? 'var(--amarelo)' : 'var(--ciano)';
       return '<div class="rank"><div class="top"><span>' + (i + 1) + '. ' + r.icone + ' ' + esc(r.nome) + ' <span class="dim">(' + nf(r.min / 60, 1) + ' h)</span></span>' +
-        '<span class="num">' + kwh(r.kwh) + ' · ' + brl(r.kwh * t) + '</span></div>' +
+        '<span class="num">' + kwh(r.kwh) + ' · ' + brl(custo(r.kwh)) + '</span></div>' +
         '<div class="barra"><i style="width:' + (max ? r.kwh / max * 100 : 0).toFixed(1) + '%;--c:' + cor + '"></i></div>' +
         '<div class="dim num" style="font-size:11px;margin-top:2px">' + nf(pct, 0) + '% do uso registrado</div></div>';
     }).join('') : '<p class="vazio">Registre usos de aparelhos para ver o ranking.</p>';
@@ -412,7 +506,7 @@
     var aviso = R.semMed ? '<p class="alerta">⚠ ' + R.semMed + ' uso(s) de aparelhos sem medidor definido não entram no cálculo de fundo. Defina o medidor no cadastro do aparelho.</p>' : '';
     $('r-int').innerHTML = aviso + (R.grupos.length ? R.grupos.map(function (g) {
       var cab = '<div class="grupo-med"><h3>📟 ' + esc(g.nome) + (g.mult !== 1 ? ' (×' + nf(g.mult, 2) + ')' : '') + '</h3>' +
-        '<div class="dim num" style="font-size:12px">' + g.n + ' leituras · total ' + kwh(g.total) + ' · ' + brl(g.total * t) + '</div>';
+        '<div class="dim num" style="font-size:12px">' + g.n + ' leituras · total ' + kwh(g.total) + ' · ' + brl(custo(g.total)) + '</div>';
       if (g.id === DESCONHECIDO) cab += '<p class="alerta">Leituras antigas sem medidor (havia mais de um medidor na migração).</p>';
       if (!g.intervalos.length) return cab + '<p class="vazio">Precisa de ao menos duas leituras deste medidor.</p></div>';
       return cab + g.intervalos.slice().reverse().map(function (x) {
@@ -421,9 +515,9 @@
         else if (x.fundo < 0) alerta = '⚠ Usos registrados superam o medido — potência, minutos ou horário errados.';
         return '<div class="intervalo"><div class="per">' + dt(x.de) + ' → ' + dt(x.ate) + ' <span class="dim">(' + nf(x.horas, 1) + ' h)</span></div>' +
           '<table class="tab">' +
-          '<tr><td>Medido no relógio</td><td class="n">' + kwh(x.medido) + '</td><td class="n">' + brl(x.medido * t) + '</td></tr>' +
-          '<tr><td>Estimado (' + x.nUsos + ' usos)</td><td class="n">' + kwh(x.estimado) + '</td><td class="n">' + brl(x.estimado * t) + '</td></tr>' +
-          '<tr><td class="' + fcls + '">Fundo</td><td class="n ' + fcls + '">' + kwh(x.fundo) + '</td><td class="n ' + fcls + '">' + brl(x.fundo * t) + '</td></tr>' +
+          '<tr><td>Medido no relógio</td><td class="n">' + kwh(x.medido) + '</td><td class="n">' + brl(custo(x.medido)) + '</td></tr>' +
+          '<tr><td>Estimado (' + x.nUsos + ' usos)</td><td class="n">' + kwh(x.estimado) + '</td><td class="n">' + brl(custo(x.estimado)) + '</td></tr>' +
+          '<tr><td class="' + fcls + '">Fundo</td><td class="n ' + fcls + '">' + kwh(x.fundo) + '</td><td class="n ' + fcls + '">' + brl(custo(x.fundo)) + '</td></tr>' +
           (x.horas > 0 && x.fundo >= 0 ? '<tr><td class="dim">Fundo médio</td><td class="n dim" colspan="2">≈ ' + nf(x.wFundo, 0) + ' W contínuos</td></tr>' : '') +
           '</table>' + (alerta ? '<div class="alerta">' + alerta + '</div>' : '') + '</div>';
       }).join('') + '</div>';
@@ -452,7 +546,7 @@
         '<span>' + dd + '</span><span class="marcas">' + (l ? '<i class="m l">' + l + '</i>' : '') + (u ? '<i class="m u">' + u + '</i>' : '') + '</span></button>';
     }
     $('cal').innerHTML = h;
-    $('cal-resumo').innerHTML = 'No mês: ' + nL + ' leituras · ' + nU + ' usos · <span class="num">' + kwh(kwhMes) + ' · ' + brl(kwhMes * D.tarifa) + '</span> estimados';
+    $('cal-resumo').innerHTML = 'No mês: ' + nL + ' leituras · ' + nU + ' usos · <span class="num">' + kwh(kwhMes) + ' · ' + brl(custo(kwhMes)) + '</span> estimados';
     renderPainelDia();
   }
   function renderPainelDia() {
@@ -467,7 +561,7 @@
         return '<li><span class="ic">⚡</span><span class="info"><b class="num">' + nf(l.kwh, 1) + ' kWh</b><small>' + esc(nomeMed(l.medidorId)) + ' · ' + hora(l.ts) + '</small></span></li>';
       }).join('') + '</ul>' : '<p class="vazio">Nenhuma leitura.</p>') +
       '<h3>USOS</h3>' + (U.length ? '<ul class="lista">' + U.map(function (u) { return linhaUso(u, true); }).join('') + '</ul>' : '<p class="vazio">Nenhum uso.</p>') +
-      '<div class="total-box"><span>Total estimado do dia</span><b>' + kwh(tot) + ' · ' + brl(tot * D.tarifa) + '</b></div></div>';
+      '<div class="total-box"><span>Total estimado do dia</span><b>' + kwh(tot) + ' · ' + brl(custo(tot)) + '</b></div></div>';
   }
   $('cal').onclick = function (e) {
     var b = e.target.closest('button.dia'); if (!b) return;
@@ -493,7 +587,7 @@
     var noPeriodo = function (x) { var k = diaKey(x.ts); return (!ini || k >= ini) && (!fim || k <= fim); };
     var L = ord(D.leituras.filter(function (l) { return noPeriodo(l) && (!md || l.medidorId === md); }));
     var U = ord(D.usos.filter(function (u) { return noPeriodo(u) && (!ap || u.aparelhoId === ap) && (!md || medDoUso(u) === md); }));
-    var tot = U.reduce(function (s, u) { return s + kwhUso(u); }, 0), t = D.tarifa;
+    var tot = U.reduce(function (s, u) { return s + kwhUso(u); }, 0);
     // consumo medido no período: última − primeira leitura de cada medidor dentro do filtro
     var porMed = {};
     L.forEach(function (l) { (porMed[l.medidorId] = porMed[l.medidorId] || []).push(l); });
@@ -509,14 +603,14 @@
       '<h3>LEITURAS (' + L.length + ')</h3>' + (L.length ? '<div class="rolagem"><table class="tabela"><thead><tr><th>DATA/HORA</th><th>MEDIDOR</th><th class="n">KWH</th></tr></thead><tbody>' +
         L.map(function (l) { return '<tr><td class="num">' + dt(l.ts) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td></tr>'; }).join('') +
         '</tbody></table></div>' : '<p class="vazio">Nenhuma leitura.</p>') +
-      (medido.length ? medido.map(function (m) { return '<div class="total-box"><span>Medido · ' + esc(m.nome) + '</span><b>' + kwh(m.kwh) + ' · ' + brl(m.kwh * t) + '</b></div>'; }).join('') : '') +
+      (medido.length ? medido.map(function (m) { return '<div class="total-box"><span>Medido · ' + esc(m.nome) + '</span><b>' + kwh(m.kwh) + ' · ' + brl(custo(m.kwh)) + '</b></div>'; }).join('') : '') +
       '<h3>USOS (' + U.length + ')</h3>' + (U.length ? '<div class="rolagem"><table class="tabela larga"><thead><tr><th>DATA/HORA</th><th>APARELHO</th><th>POTÊNCIA</th><th class="n">MIN</th><th class="n">KWH</th><th class="n">CUSTO</th></tr></thead><tbody>' +
         U.map(function (u) {
           var k = kwhUso(u);
           return '<tr><td class="num">' + dt(u.ts) + '</td><td>' + u.icone + ' ' + esc(u.nome) + '</td><td>' + esc(potTxt(u)) + '</td><td class="n">' + nf(u.minutos, 0) +
-            '</td><td class="n">' + nf(k, 3) + '</td><td class="n">' + brl(k * t) + '</td></tr>';
+            '</td><td class="n">' + nf(k, 3) + '</td><td class="n">' + brl(custo(k)) + '</td></tr>';
         }).join('') + '</tbody></table></div>' : '<p class="vazio">Nenhum uso.</p>') +
-      '<div class="total-box"><span>Total dos usos no período</span><b>' + kwh(tot) + ' · ' + brl(tot * t) + '</b></div>';
+      '<div class="total-box"><span>Total dos usos no período</span><b>' + kwh(tot) + ' · ' + brl(custo(tot)) + '</b></div>';
   }
   function dataBr(k) { var p = k.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
   $('f-pesq').onsubmit = function (e) { e.preventDefault(); pesquisar(); };
@@ -550,8 +644,8 @@
   });
   function exportarPdf() {
     menu(false);
-    renderRelatorio(); renderCalendario();
-    $('print-cab').textContent = 'Gerado em ' + dt(new Date().toISOString()) + ' · Tarifa ' + brl(D.tarifa) + '/kWh · v' + VERSAO + ' · ' + sessao.email;
+    atualizaTarifa(); renderRelatorio(); renderCalendario();
+    $('print-cab').textContent = 'Gerado em ' + dt(new Date().toISOString()) + ' · ' + D.tarifaCfg.distribuidora + ' · bandeira ' + (D.tarifaCfg.bandeiras[D.tarifaCfg.bandeira] || {}).label + ' · tarifa média ' + nf(TAR.efetiva, 4) + ' R$/kWh · v' + VERSAO + ' · ' + sessao.email;
     window.print();
   }
   $('m-pdf').onclick = exportarPdf;
@@ -688,11 +782,84 @@
     salvar(); render();
   });
 
-  $('f-tarifa').onsubmit = function (e) {
-    e.preventDefault();
-    var t = numero($('c-tarifa').value);
-    if (!(t > 0 && t < 20)) return toast('TARIFA INVÁLIDA');
-    D.tarifa = t; salvar(); render(); toast('TARIFA SALVA ✓');
+  // ───────── editor de tarifa (Configurações e onboarding) ─────────
+  function htmlBandeiras(nome, sel, cfg) {
+    return BANDS.map(function (b) {
+      var u = BAND_UI[b], bb = cfg.bandeiras[b];
+      return '<button type="button" role="radio" class="band-op' + (b === sel ? ' on' : '') + '" aria-checked="' + (b === sel) + '" data-band="' + b + '" data-grupo="' + nome + '" style="--c:' + u.cor + '">' +
+        '<span class="be">' + u.emoji + '</span><span><b>' + esc(bb.label.replace('Patamar ', 'P')) + '</b><small class="num">' +
+        (bb.acrescimo ? '+' + rs5(bb.acrescimo) + '/kWh' : 'sem acréscimo') + '</small></span></button>';
+    }).join('');
+  }
+  function htmlFaixas(pref, cfg) {
+    var f = cfg.faixas;
+    var lin = function (i, ate) {
+      return '<tr><td>Faixa ' + i + '</td><td>' + ate + '</td><td><input id="' + pref + '-t' + i + '" class="num" inputmode="decimal" value="' + nf(f[i - 1].tarifa, 5) + '" aria-label="Faixa ' + i + ' R$ por kWh"></td></tr>';
+    };
+    return '<table class="tabela faixas"><thead><tr><th>FAIXA</th><th>ATÉ (KWH)</th><th>R$/KWH</th></tr></thead><tbody>' +
+      lin(1, '<input id="' + pref + '-a1" class="num" inputmode="numeric" value="' + f[0].ate + '" aria-label="Faixa 1 até kWh">') +
+      lin(2, '<input id="' + pref + '-a2" class="num" inputmode="numeric" value="' + f[1].ate + '" aria-label="Faixa 2 até kWh">') +
+      lin(3, '<input id="' + pref + '-a3" class="num" disabled value="Acima de ' + f[1].ate + '" aria-label="Faixa 3">') +
+      '</tbody></table>';
+  }
+  function lerFaixas(pref) {
+    if (!$(pref + '-a1')) return 'Faixas não carregadas.';
+    var a1 = numero($(pref + '-a1').value), a2 = numero($(pref + '-a2').value);
+    var t = [1, 2, 3].map(function (i) { return numero($(pref + '-t' + i).value); });
+    if (!(a1 >= 1 && a1 === Math.floor(a1))) return 'Limite da faixa 1 inválido.';
+    if (!(a2 > a1 && a2 === Math.floor(a2) && a2 <= 100000)) return 'Limite da faixa 2 deve ser maior que o da faixa 1.';
+    for (var i = 0; i < 3; i++) if (!(t[i] > 0 && t[i] < 20)) return 'Tarifa da faixa ' + (i + 1) + ' inválida.';
+    return [{ ate: a1, tarifa: t[0] }, { ate: a2, tarifa: t[1] }, { ate: null, tarifa: t[2] }];
+  }
+  function ligaFaixas(pref) { // "Acima de X" acompanha o limite da faixa 2
+    $(pref + '-a2').addEventListener('input', function () { var v = numero(this.value); $(pref + '-a3').value = 'Acima de ' + (v > 0 ? nf(v, 0) : '…'); });
+  }
+  function hoje() { return diaKey(new Date()); }
+
+  function renderCfgTarifa() {
+    if (document.activeElement && $('cfg-tarifa').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return; // não atropela edição
+    var c = D.tarifaCfg;
+    $('t-dist').value = c.distribuidora || 'Outra';
+    $('t-band').innerHTML = htmlBandeiras('cfg', c.bandeira, c);
+    $('t-faixas').innerHTML = htmlFaixas('tf', c); ligaFaixas('tf');
+    $('t-modo').value = c.modo || 'progressivo';
+    $('t-acr').innerHTML = BANDS.map(function (b) {
+      return '<div class="acr"><label for="tb-' + b + '">' + BAND_UI[b].emoji + ' ' + esc(c.bandeiras[b].label) + '</label><input id="tb-' + b + '" class="num" inputmode="decimal" value="' + nf(c.bandeiras[b].acrescimo, 5) + '"></div>';
+    }).join('');
+    $('t-atual').textContent = dataBr(c.ultimaAtualizacao || hoje());
+    $('t-efetiva').innerHTML = 'Tarifa média efetiva agora: <span class="num">' + rs5(TAR.efetiva) + '/kWh</span>' +
+      (TAR.ref ? ' (para ~' + nf(TAR.ref, 0) + ' kWh/mês projetados)' : ' (faixa 2 + bandeira, até haver leituras suficientes)');
+  }
+  function salvarTarifa(msg) { D.tarifaCfg.ultimaAtualizacao = hoje(); salvar(); render(); toast(msg); }
+  document.body.addEventListener('click', function (e) {
+    var b = e.target.closest('.band-op'); if (!b) return;
+    b.parentNode.querySelectorAll('.band-op').forEach(function (x) { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
+    if (b.dataset.grupo === 'cfg') { D.tarifaCfg.bandeira = b.dataset.band; salvarTarifa('BANDEIRA ' + BAND_UI[b.dataset.band].curto + ' ✓'); }
+  });
+  $('t-salvar-faixas').onclick = function () {
+    var f = lerFaixas('tf'); if (typeof f === 'string') return toast(f.toUpperCase());
+    D.tarifaCfg.faixas = f; D.tarifaCfg.modo = $('t-modo').value; D.tarifaCfg.distribuidora = $('t-dist').value;
+    if (document.activeElement) document.activeElement.blur();
+    salvarTarifa('TARIFA SALVA ✓');
+  };
+  $('t-salvar-band').onclick = function () {
+    var novo = {};
+    for (var i = 0; i < BANDS.length; i++) {
+      var v = numero($('tb-' + BANDS[i]).value);
+      if (!(v >= 0 && v < 5)) return toast('ACRÉSCIMO INVÁLIDO: ' + BAND_UI[BANDS[i]].curto);
+      novo[BANDS[i]] = v;
+    }
+    BANDS.forEach(function (b) { D.tarifaCfg.bandeiras[b].acrescimo = novo[b]; });
+    if (document.activeElement) document.activeElement.blur();
+    salvarTarifa('BANDEIRAS SALVAS ✓');
+  };
+  $('t-restaurar').onclick = function () {
+    if (!confirm('Restaurar faixas e acréscimos para a referência Light (nov/2026)? A bandeira atual é mantida.')) return;
+    var p = tarifaPadrao(); p.bandeira = D.tarifaCfg.bandeira; D.tarifaCfg = p; salvarTarifa('VALORES LIGHT RESTAURADOS ✓');
+  };
+  $('hdr-band').onclick = function () {
+    irPara('config');
+    setTimeout(function () { $('cfg-tarifa').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }, 30);
   };
 
   $('c-exp').onclick = function () {
@@ -753,7 +920,7 @@
     },
     2: function () { return numero($('o-leitura').value) >= 0 ? '' : 'Digite a leitura do display (só números).'; },
     3: function () { return onb.aps.some(function (x) { return x.on; }) ? '' : 'Mantenha pelo menos 1 aparelho marcado.'; },
-    4: function () { var t = numero($('o-tarifa').value); return t > 0 && t < 20 ? '' : 'Informe o valor do kWh (ex: 1,10).'; }
+    4: function () { if (ehLightOnb()) return ''; var f = lerFaixas('of'); return typeof f === 'string' ? f : ''; }
   };
   function mostrarOnboarding() {
     document.body.classList.add('onb-on');
@@ -762,7 +929,8 @@
     var base = D.aparelhos.length ? D.aparelhos : seeds();
     onb = { passo: 1, ts: null, aps: base.map(function (a) { return { ap: a, on: true }; }) };
     $('o-codigo').value = ''; $('o-dist').value = ''; $('o-mult').value = '1';
-    $('o-leitura').value = ''; $('o-tarifa').value = D.tarifa && D.tarifa !== 1 ? nf(D.tarifa, 2) : '';
+    $('o-leitura').value = '';
+    $('o-faixas').innerHTML = ''; $('o-band').innerHTML = '';
     renderOnbAps(); irPasso(1);
     clearInterval(onbRelogio);
     onbRelogio = setInterval(function () { if (onb && onb.passo === 2) $('o-agora').textContent = agoraTxt(); }, 1000);
@@ -792,9 +960,9 @@
     document.querySelectorAll('.onb-barra i').forEach(function (b, i) { b.classList.toggle('on', i < n); });
     document.querySelectorAll('.onb-tela').forEach(function (t) { t.setAttribute('aria-hidden', t.dataset.passo == n ? 'false' : 'true'); t.inert = t.dataset.passo != n; });
     $('onb-voltar').style.visibility = n === 1 ? 'hidden' : 'visible';
-    $('onb-prox').textContent = n === 4 ? '✓ COMEÇAR A USAR O VIGIA ENERGY' : 'PRÓXIMO →';
+    $('onb-prox').textContent = n === 4 ? (ehLightOnb() ? '✓ CONFIRMAR E CONTINUAR' : '✓ COMEÇAR A USAR O VIGIA ENERGY') : 'PRÓXIMO →';
     if (n === 2) $('o-agora').textContent = agoraTxt();
-    if (n === 4) { var d = $('o-dist').value; $('o-dist-txt').textContent = d || '—'; }
+    if (n === 4) prepararPasso4();
     $('onb-erro').textContent = '';
     atualizaOnb();
     var tela = document.querySelector('.onb-tela[data-passo="' + n + '"]');
@@ -843,6 +1011,24 @@
   };
   $('o-imp').onclick = function () { $('c-arq').click(); };
 
+  function ehLightOnb() { return $('o-dist').value === 'Light'; }
+  function prepararPasso4() {
+    var d = $('o-dist').value, light = d === 'Light';
+    $('o-dist-txt').textContent = d || '—';
+    $('o-tar-light').hidden = !light; $('o-tar-edit').hidden = light;
+    if (light) {
+      var f = tarifaPadrao().faixas;
+      $('o-tar-tab').innerHTML =
+        '<tr><td>Faixa 1 · até ' + f[0].ate + ' kWh</td><td class="n">' + rs5(f[0].tarifa) + '</td></tr>' +
+        '<tr><td>Faixa 2 · ' + (f[0].ate + 1) + ' a ' + f[1].ate + ' kWh</td><td class="n">' + rs5(f[1].tarifa) + '</td></tr>' +
+        '<tr><td>Faixa 3 · acima de ' + f[1].ate + ' kWh</td><td class="n">' + rs5(f[2].tarifa) + '</td></tr>' +
+        '<tr><td class="dim">Bandeira inicial</td><td class="n dim">🟢 Verde</td></tr>';
+    } else if (!$('of-a1')) {
+      var base = D.tarifaCfg && D.tarifaCfg.distribuidora === d ? D.tarifaCfg : tarifaPadrao();
+      $('o-faixas').innerHTML = htmlFaixas('of', base); ligaFaixas('of');
+      $('o-band').innerHTML = htmlBandeiras('onb', base.bandeira, base);
+    }
+  }
   function concluirOnboarding() {
     var codigo = $('o-codigo').value.trim(), dist = $('o-dist').value;
     var mult = $('o-mult').value.trim() === '' ? 1 : numero($('o-mult').value);
@@ -852,7 +1038,14 @@
     D.leituras.push({ id: novoId(), ts: onb.ts || new Date().toISOString(), kwh: numero($('o-leitura').value), medidorId: m.id });
     D.aparelhos = onb.aps.filter(function (x) { return x.on; }).map(function (x) { return x.ap; });
     D.seeded = true;
-    D.tarifa = numero($('o-tarifa').value);
+    var cfgN = tarifaPadrao();
+    if (dist === 'Light') { if (D.tarifaCfg && D.tarifaCfg.distribuidora === 'Light') cfgN.bandeira = D.tarifaCfg.bandeira; }
+    else {
+      cfgN.faixas = lerFaixas('of');
+      var bsel = document.querySelector('#o-band .band-op.on'); cfgN.bandeira = bsel ? bsel.dataset.band : 'verde';
+    }
+    cfgN.distribuidora = dist; cfgN.ultimaAtualizacao = hoje();
+    D.tarifaCfg = cfgN;
     D.onboarding = true;
     salvar();
     render(); irPara('medidor');
@@ -875,5 +1068,6 @@
       if (tinhaControle) toast('NOVA VERSÃO INSTALADA — FECHE E ABRA O APP');
     });
   }
-  window.__ve = { calcular: calcular, dados: function () { return D; } }; // para testes
+  window.__ve = { calcular: calcular, dados: function () { return D; }, calcularCusto: calcularCusto, detalharCusto: detalharCusto,
+    tarifaPadrao: tarifaPadrao, tar: function () { return TAR; } }; // para testes
 })();
