@@ -1,8 +1,9 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.6.0';
+self.VE_VERSAO = '2.6.1';
 self.VE_NOVIDADES = [
+  { v: '2.6.1', itens: ['Novo ícone do app (raio neon)'] },
   { v: '2.6.0', itens: [
     'Login com a conta do Vigia (e-mail/senha ou Google), com "Esqueci minha senha"',
     'Dados sincronizados na nuvem: recupera em outro celular ou após limpar o navegador',

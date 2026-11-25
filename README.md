@@ -1,6 +1,6 @@
 # Vigia Energy ⚡
 
-Versão atual: **2.6.0** (exibida no app: topo e ⚙️ → Configurações → Sobre).
+Versão atual: **2.6.1** (exibida no app: topo e ⚙️ → Configurações → Sobre).
 
 PWA offline-first para controle de consumo de energia elétrica residencial. HTML/CSS/JS puro, sem frameworks, sem backend.
 
@@ -19,7 +19,7 @@ energy/app.js     Lógica: medidores, aparelhos multipotência, uso, calendário
 sw.js             Service worker único (cobre / e /energy/)
 manifest.json     Manifest PWA (start_url relativo)
 fonts/            Press Start 2P hospedada localmente (OFL) — funciona offline
-icon-192/512.png  Ícones pixel art gerados em canvas
+icon-*.png        Ícones gerados de icon-src.jpg (recorte 13%; maskable com zona segura)
 ```
 
 ## Como funciona o relatório
