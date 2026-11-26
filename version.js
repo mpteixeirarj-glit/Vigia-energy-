@@ -1,8 +1,15 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.7.0';
+self.VE_VERSAO = '2.8.0';
 self.VE_NOVIDADES = [
+  { v: '2.8.0', itens: [
+    'Leitura: data/hora visível, observação e marca de início de ciclo',
+    'Validação pelos vizinhos no tempo, com opção de forçar (troca de medidor)',
+    'Editar leitura (✏️) com marcas [CICLO] [RETRO] [EDIT] no histórico',
+    'Ciclos de faturamento na aba Medidor, com custo pela tarifa por faixas',
+    'Exclusão com confirmação no próprio app (sem a caixa do navegador)'
+  ] },
   { v: '2.7.0', itens: [
     'Nuvem ativada no projeto Firebase exclusivo do Vigia Energy',
     'Conta deste aparelho é criada na nuvem no primeiro login online, com a mesma senha'

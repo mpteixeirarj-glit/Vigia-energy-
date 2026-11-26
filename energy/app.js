@@ -323,7 +323,7 @@
     if (precisaOnboarding()) { mostrarOnboarding(); return; }
     fecharOnboarding();
     atualizaTarifa();
-    renderMedidores(); renderInicio(); renderHistLeituras(); renderAparelhos(); renderRepetir();
+    renderMedidores(); renderInicio(); renderHistLeituras(); renderCiclos(); renderAparelhos(); renderRepetir();
     renderCalendario(); renderFiltros();
     if (abaAtual === 'pesquisa') pesquisar();
     renderCfgTarifa();
@@ -376,8 +376,8 @@
     // leituras de hoje: as 5 mais recentes, em ordem cronológica
     var LH = ord(D.leituras.filter(ehHoje)), ult5 = LH.slice(-5);
     $('l-hoje').innerHTML = ult5.length ? ult5.map(function (l) {
-      return '<li><span class="h">' + hora(l.ts) + '</span><span class="m">' + esc(nomeMed(l.medidorId)) + '</span><span class="v">' + nf(l.kwh, 1) + ' kWh</span>' +
-        '<button type="button" class="x" data-del-l="' + l.id + '" aria-label="Excluir leitura das ' + hora(l.ts) + '">✕</button></li>';
+      return '<li><span class="h">' + hora(l.ts) + '</span><span class="m-col"><span class="m">' + esc(nomeMed(l.medidorId)) + badgesLeitura(l) + '</span>' + obsLeitura(l) + '</span>' +
+        '<span class="v">' + nf(l.kwh, 1) + ' kWh</span>' + acoesLeitura(l) + '</li>';
     }).join('') : '<li class="vazio">Nenhuma leitura hoje.</li>';
     $('l-ver-todas').textContent = LH.length > 5 ? 'Ver todas (' + LH.length + ') →' : 'Ver todas →';
     atualizaPrevLeitura();
@@ -421,8 +421,11 @@
     var pg = L.slice(hist.pag * hist.POR, (hist.pag + 1) * hist.POR);
     $('lh-tab').innerHTML = L.length ? '<table class="tabela"><thead><tr><th>DATA/HORA</th><th>MEDIDOR</th><th class="n">LEITURA (KWH)</th><th></th></tr></thead><tbody>' +
       pg.map(function (l) {
-        return '<tr><td class="num">' + dt(l.ts) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td>' +
-          '<td class="n"><button type="button" class="x" data-del-l="' + l.id + '" aria-label="Excluir leitura">✕</button></td></tr>';
+        // lista do mais novo para o mais antigo: a marca fica logo ABAIXO da leitura que abre o ciclo,
+        // separando-a das leituras do ciclo anterior
+        return '<tr><td class="num">' + dt(l.ts) + badgesLeitura(l) + obsLeitura(l) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td>' +
+          '<td class="n">' + acoesLeitura(l) + '</td></tr>' +
+          (l.inicioCiclo ? '<tr class="sep-ciclo"><td colspan="4">── ▲ INÍCIO DE CICLO · ' + dt(l.ts).slice(0, 8) + ' ──</td></tr>' : '');
       }).join('') + '</tbody></table>' : '<p class="vazio">Nenhuma leitura.</p>';
     $('lh-pag').innerHTML = npag > 1 ? '<button type="button" class="btn" id="lh-ant"' + (hist.pag === 0 ? ' disabled' : '') + ' aria-label="Página anterior">‹</button>' +
       '<span>Página ' + (hist.pag + 1) + ' de ' + npag + ' · ' + L.length + ' leituras</span>' +
@@ -430,6 +433,36 @@
       : (L.length ? '<span>' + L.length + ' leitura' + (L.length === 1 ? '' : 's') + '</span>' : '');
   }
   $('lh-med').onchange = function () { hist.pag = 0; renderHistLeituras(); };
+
+  /* Ciclos de faturamento, por medidor: de uma leitura "início de ciclo" até a próxima
+   * (fechado) ou até a última leitura (em andamento). Aqui a tarifa por faixas é aplicada
+   * corretamente — sobre o consumo do ciclo inteiro. */
+  function renderCiclos() {
+    var html = '', multi = D.medidores.length > 1;
+    D.medidores.forEach(function (m) {
+      var L = ord(D.leituras.filter(function (l) { return l.medidorId === m.id; }));
+      var ini = L.filter(function (l) { return l.inicioCiclo; });
+      if (!ini.length) return;
+      var ciclos = ini.map(function (a, i) {
+        var b = ini[i + 1], fim = b || L[L.length - 1];
+        var dias = (new Date(fim.ts) - new Date(a.ts)) / 864e5, k = (fim.kwh - a.kwh) * (m.mult || 1);
+        return { a: a, fim: fim, fechado: !!b, dias: dias, kwh: k };
+      }).reverse();
+      if (multi) html += '<h3>📟 ' + esc(m.nome) + '</h3>';
+      html += ciclos.map(function (c) {
+        var aberto = !c.fechado, neg = c.kwh < 0, proj = aberto && !neg && c.dias >= 3 ? c.kwh / c.dias * 30 : null;
+        return '<div class="ciclo-box' + (aberto ? ' aberto' : '') + '"><div class="per">' + dt(c.a.ts).slice(0, 8) + ' → ' + (aberto ? 'hoje' : dt(c.fim.ts).slice(0, 8)) +
+          ' <span class="dim">(' + nf(c.dias, 0) + ' dias' + (aberto ? ', em andamento' : '') + ')</span></div><table class="tab">' +
+          '<tr><td>Leitura inicial</td><td class="n">' + nf(c.a.kwh, 1) + ' kWh</td></tr>' +
+          '<tr><td>' + (aberto ? 'Última leitura' : 'Leitura final') + '</td><td class="n">' + nf(c.fim.kwh, 1) + ' kWh</td></tr>' +
+          '<tr><td>Consumo' + (m.mult && m.mult !== 1 ? ' (×' + nf(m.mult, 2) + ')' : '') + '</td><td class="n">' + kwh(c.kwh) + '</td></tr>' +
+          (neg ? '' : '<tr><td style="color:var(--amarelo)">Custo estimado</td><td class="n" style="color:var(--amarelo)">' + brl(calcularCusto(c.kwh)) + '</td></tr>') +
+          (proj !== null ? '<tr><td class="dim">Projeção do ciclo (30 dias)</td><td class="n dim">' + kwh(proj) + ' · ' + brl(calcularCusto(proj)) + '</td></tr>' : '') +
+          '</table>' + (neg ? '<div class="alerta">⚠ Consumo negativo: houve troca de medidor ou leitura errada no meio do ciclo. Corrija a leitura (✏️) ou marque a primeira leitura do medidor novo como início de ciclo.</div>' : '') + '</div>';
+      }).join('');
+    });
+    $('ciclos').innerHTML = html || '<p class="vazio">Nenhuma leitura marcada como início de ciclo ainda.</p>';
+  }
   $('lh-pag').onclick = function (e) {
     if (e.target.id === 'lh-ant' && hist.pag > 0) hist.pag--;
     else if (e.target.id === 'lh-prox') hist.pag++;
@@ -464,6 +497,50 @@
   });
 
   function medLeituraAtual() { return D.medidores.length === 1 ? D.medidores[0].id : $('l-med').value; }
+  /* ───────── leituras: validação, flags, edição ─────────
+   * Modelo: ts = QUANDO a leitura foi feita (usado em todos os cálculos);
+   * criadoEm = quando foi lançada no app. Retroativa = ts mais de 10 min antes de criadoEm.
+   * Campos opcionais (ausente = falso/vazio): obs, inicioCiclo, editada, criadoEm. */
+  var RETRO_MS = 10 * 60000;
+  function ehRetro(l) { return !!l.criadoEm && new Date(l.criadoEm) - new Date(l.ts) > RETRO_MS; }
+  function badgesLeitura(l) {
+    return (l.inicioCiclo ? '<span class="bdg ciclo" title="Início de ciclo de faturamento">CICLO</span>' : '') +
+      (ehRetro(l) ? '<span class="bdg retro" title="Lançada em ' + dt(l.criadoEm) + '">RETRO</span>' : '') +
+      (l.editada ? '<span class="bdg edit" title="Editada' + (l.editadaEm ? ' em ' + dt(l.editadaEm) : '') + '">EDIT</span>' : '');
+  }
+  function obsLeitura(l) { return l.obs ? '<span class="obs-l">"' + esc(l.obs) + '"</span>' : ''; }
+  function acoesLeitura(l) {
+    return '<span class="acoes"><button type="button" class="ed" data-edit-l="' + l.id + '" aria-label="Editar leitura">✏️</button>' +
+      '<button type="button" class="x" data-del-l="' + l.id + '" aria-label="Excluir leitura">✕</button></span>';
+  }
+  /* Compara com os VIZINHOS no tempo (não com a "última"): uma leitura retroativa
+   * de ontem é naturalmente menor que a de hoje e não pode ser bloqueada por isso. */
+  function validarLeitura(valor, ts, medidorId, ignorarId) {
+    if (!(valor >= 0)) return { ok: false, erro: 'Valor inválido.' };
+    if (new Date(ts) - Date.now() > 5 * 60000) return { ok: false, erro: 'Data/hora no futuro.' };
+    var L = ord(D.leituras.filter(function (l) { return l.medidorId === medidorId && l.id !== ignorarId; }));
+    var ant = L.filter(function (l) { return l.ts <= ts; }).pop(), prox = L.filter(function (l) { return l.ts > ts; })[0];
+    if (ant && valor < ant.kwh) return { ok: false, podeForcar: true,
+      erro: 'Valor menor que a leitura anterior (' + nf(ant.kwh, 1) + ' kWh em ' + dt(ant.ts) + '). O medidor só aumenta.' };
+    if (prox && valor > prox.kwh) return { ok: false, podeForcar: true,
+      erro: 'Valor maior que a leitura seguinte (' + nf(prox.kwh, 1) + ' kWh em ' + dt(prox.ts) + '). Confira o valor ou a data.' };
+    if (ant && valor - ant.kwh > 500) return { ok: false, podeForcar: true,
+      erro: 'Salto de ' + nf(valor - ant.kwh, 0) + ' kWh desde ' + dt(ant.ts) + '. Confira se não sobrou ou faltou um dígito.' };
+    if (ant && valor === ant.kwh) return { ok: true, aviso: 'Valor igual à leitura anterior — consumo zero neste intervalo.' };
+    return { ok: true };
+  }
+  function mostrarErroLeitura(pref, r) {
+    $(pref + '-erro').hidden = !r; if (!r) return;
+    $(pref + '-erro-txt').textContent = r.erro; $(pref + '-forcar').hidden = !r.podeForcar;
+  }
+  var OBS_FORCADA = '[FORÇADO - possível troca de medidor]';
+
+  // data/hora do formulário acompanha o relógio até a pessoa mexer nela
+  var lTsTocado = false;
+  function atualizaTsLeitura() { if (!lTsTocado) $('l-ts').value = agoraLocal(); $('l-retro').hidden = !(Date.now() - new Date($('l-ts').value) > RETRO_MS); }
+  $('l-ts').addEventListener('input', function () { lTsTocado = true; atualizaTsLeitura(); mostrarErroLeitura('l', null); });
+  setInterval(atualizaTsLeitura, 20000);
+
   function atualizaPrevLeitura() {
     var id = medLeituraAtual();
     var ult = ord(D.leituras).filter(function (l) { return l.medidorId === id; }).pop();
@@ -704,7 +781,7 @@
     $('p-filtro').textContent = 'Mostrando: ' + (ini ? dataBr(ini) : 'início') + ' → ' + (fim ? dataBr(fim) : 'hoje') +
       (ap && aparelho(ap) ? ' · ' + aparelho(ap).nome : '') + (md ? ' · ' + nomeMed(md) : '');
     $('p-res').innerHTML = '<h2 id="p-leituras">⚡ LEITURAS (' + L.length + ')</h2>' + (L.length ? '<div class="rolagem"><table class="tabela"><thead><tr><th>DATA/HORA</th><th>MEDIDOR</th><th class="n">KWH</th><th></th></tr></thead><tbody>' +
-        L.map(function (l) { return '<tr><td class="num">' + dt(l.ts) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td><td class="n"><button type="button" class="x" data-del-l="' + l.id + '" aria-label="Excluir leitura">✕</button></td></tr>'; }).join('') +
+        L.map(function (l) { return '<tr><td class="num">' + dt(l.ts) + badgesLeitura(l) + obsLeitura(l) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td><td class="n">' + acoesLeitura(l) + '</td></tr>'; }).join('') +
         '</tbody></table></div>' : '<p class="vazio">Nenhuma leitura.</p>') +
       '<h2 style="margin-top:18px">📋 USOS (' + U.length + ')</h2>' + (U.length ? '<div class="rolagem"><table class="tabela larga"><thead><tr><th>DATA/HORA</th><th>APARELHO</th><th>POTÊNCIA</th><th class="n">MIN</th><th class="n">KWH</th><th class="n">CUSTO</th><th></th></tr></thead><tbody>' +
         U.map(function (u) {
@@ -847,16 +924,62 @@
     e.preventDefault();
     var mid = medLeituraAtual();
     if (!mid) return toast('ESCOLHA O MEDIDOR');
-    var v = numero($('l-kwh').value);
-    if (!(v >= 0)) return toast('VALOR INVÁLIDO');
-    var ts = lerTs($('l-ts'));
-    var antes = ord(D.leituras).filter(function (l) { return l.medidorId === mid && l.ts <= ts; }).pop();
-    if (antes && v < antes.kwh && !confirm('Valor menor que a leitura anterior deste medidor (' + nf(antes.kwh, 1) + ' kWh). Registrar mesmo assim?')) return;
-    if (antes && v - antes.kwh > 500 && !confirm('Salto de ' + nf(v - antes.kwh, 0) + ' kWh desde a última leitura. Confirma?')) return;
-    D.leituras.push({ id: novoId(), ts: ts, kwh: v, medidorId: mid }); salvar();
-    $('l-kwh').value = ''; $('l-ts').value = '';
-    render(); toast('LEITURA REGISTRADA ✓');
+    lancarLeitura(mid, false);
   };
+  function lancarLeitura(mid, forcar) {
+    var v = numero($('l-kwh').value), ts = lTsTocado ? lerTs($('l-ts')) : new Date().toISOString();
+    var r = validarLeitura(v, ts, mid);
+    if (!r.ok && !(forcar && r.podeForcar)) { mostrarErroLeitura('l', r); return; }
+    mostrarErroLeitura('l', null);
+    var obs = $('l-obs').value.trim();
+    if (forcar && !r.ok && !obs) obs = OBS_FORCADA;
+    var l = { id: novoId(), ts: ts, kwh: v, medidorId: mid, criadoEm: new Date().toISOString() };
+    if (obs) l.obs = obs;
+    if ($('l-ciclo').checked) l.inicioCiclo = true;
+    D.leituras.push(l); salvar();
+    $('l-kwh').value = ''; $('l-obs').value = ''; $('l-ciclo').checked = false; lTsTocado = false; atualizaTsLeitura();
+    render(); toast(r.aviso ? r.aviso.toUpperCase() : ehRetro(l) ? 'LEITURA RETROATIVA REGISTRADA ✓' : 'LEITURA REGISTRADA ✓');
+  }
+  $('l-forcar').onclick = function () { var mid = medLeituraAtual(); if (mid) lancarLeitura(mid, true); };
+  $('l-kwh').addEventListener('input', function () { mostrarErroLeitura('l', null); });
+
+  // ── edição de leitura (modal)
+  var editL = null;
+  function abrirEdicao(id) {
+    var l = D.leituras.find(function (x) { return x.id === id; }); if (!l) return;
+    editL = l.id;
+    $('ml-kwh').value = nf(l.kwh, 1).replace(/\./g, '');
+    var d = new Date(l.ts); $('ml-ts').value = $('ml-ts').dataset.orig = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    $('ml-obs').value = l.obs || ''; $('ml-ciclo').checked = !!l.inicioCiclo;
+    $('ml-info').textContent = nomeMed(l.medidorId) + (l.criadoEm ? ' · lançada em ' + dt(l.criadoEm) : '');
+    mostrarErroLeitura('ml', null);
+    $('modal-leitura').hidden = false; setTimeout(function () { $('ml-kwh').focus(); }, 50);
+  }
+  function fecharEdicao() { editL = null; $('modal-leitura').hidden = true; }
+  function salvarEdicao(forcar) {
+    var l = D.leituras.find(function (x) { return x.id === editL; }); if (!l) return fecharEdicao();
+    // o campo não tem segundos: se a data não foi mexida, mantém o horário exato original
+    // (senão 12:40:37 viraria 12:40:00 e poderia trocar de ordem com outra leitura do mesmo minuto)
+    var v = numero($('ml-kwh').value), ts = $('ml-ts').value === $('ml-ts').dataset.orig ? l.ts : lerTs($('ml-ts'));
+    // só observação/ciclo mudaram: não revalida o valor (uma leitura já forçada não pede de novo)
+    var r = v === l.kwh && ts === l.ts ? { ok: true } : validarLeitura(v, ts, l.medidorId, l.id);
+    if (!r.ok && !(forcar && r.podeForcar)) { mostrarErroLeitura('ml', r); return; }
+    var obs = $('ml-obs').value.trim(); if (forcar && !r.ok && !obs) obs = OBS_FORCADA;
+    var mudou = v !== l.kwh || ts !== l.ts || obs !== (l.obs || '') || $('ml-ciclo').checked !== !!l.inicioCiclo;
+    if (!mudou) return fecharEdicao();
+    if (!l.criadoEm) l.criadoEm = l.ts; // leitura antiga: a referência do "retroativa" é a data original
+    l.kwh = v; l.ts = ts;
+    if (obs) l.obs = obs; else delete l.obs;
+    if ($('ml-ciclo').checked) l.inicioCiclo = true; else delete l.inicioCiclo;
+    l.editada = true; l.editadaEm = new Date().toISOString();
+    salvar(); fecharEdicao(); render(); toast(r.aviso ? r.aviso.toUpperCase() : 'LEITURA EDITADA ✓');
+  }
+  $('f-edit-leitura').onsubmit = function (e) { e.preventDefault(); salvarEdicao(false); };
+  $('ml-forcar').onclick = function () { salvarEdicao(true); };
+  $('ml-cancelar').onclick = fecharEdicao;
+  $('modal-leitura').addEventListener('click', function (e) { if (e.target.id === 'modal-leitura') fecharEdicao(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && editL) fecharEdicao(); });
+  document.body.addEventListener('click', function (e) { var b = e.target.closest('[data-edit-l]'); if (b) abrirEdicao(b.dataset.editL); });
 
   $('f-medidor').onsubmit = function (e) {
     e.preventDefault();
@@ -957,13 +1080,29 @@
     render(); toast('USO REGISTRADO ✓');
   };
 
+  /* Exclusão com confirmação inline no estilo do app (o confirm() nativo trava ou
+   * some em alguns navegadores de celular e no app instalado). */
+  function pedirConfirmacao(btn, texto, executar) {
+    var item = btn.closest('li, tr'); if (!item) return;
+    var prox = item.nextElementSibling;
+    if (prox && prox.classList.contains('js-confirma')) { prox.remove(); return; } // 2º toque no ✕ fecha
+    document.querySelectorAll('.js-confirma').forEach(function (x) { x.remove(); });
+    var caixa = '<div class="confirma"><span>' + texto + '</span><button type="button" class="btn sim">SIM</button><button type="button" class="btn nao">NÃO</button></div>';
+    var el;
+    if (item.tagName === 'TR') { el = document.createElement('tr'); el.className = 'tr-confirma js-confirma'; el.innerHTML = '<td colspan="' + item.children.length + '">' + caixa + '</td>'; }
+    else { el = document.createElement('li'); el.className = 'js-confirma'; el.style.cssText = 'display:block;border-top:0;padding:0'; el.innerHTML = caixa; }
+    item.after(el);
+    el.querySelector('.sim').onclick = function () { el.remove(); executar(); };
+    el.querySelector('.nao').onclick = function () { el.remove(); };
+    el.querySelector('.nao').focus();
+  }
   document.body.addEventListener('click', function (e) {
-    var b = e.target.closest('button.x'); if (!b || b.id === 'cal-fechar') return;
-    var d = b.dataset;
-    if (d.delL && confirm('Excluir esta leitura?')) D.leituras = D.leituras.filter(function (x) { return x.id !== d.delL; });
-    else if (d.delA && confirm('Excluir este aparelho? O histórico de uso dele é mantido.')) D.aparelhos = D.aparelhos.filter(function (x) { return x.id !== d.delA; });
-    else if (d.delU && confirm('Excluir este registro de uso?')) D.usos = D.usos.filter(function (x) { return x.id !== d.delU; });
-    else if (d.delM && D.medidores.length > 1) {
+    var b = e.target.closest('button.x'); if (!b || b.id === 'cal-fechar' || b.closest('.lamp-linha')) return;
+    var d = b.dataset, feito = function () { salvar(); render(); };
+    if (d.delL) return pedirConfirmacao(b, 'Excluir esta leitura?', function () { D.leituras = D.leituras.filter(function (x) { return x.id !== d.delL; }); feito(); toast('LEITURA EXCLUÍDA'); });
+    if (d.delA) return pedirConfirmacao(b, 'Excluir este aparelho? O histórico de uso dele é mantido.', function () { D.aparelhos = D.aparelhos.filter(function (x) { return x.id !== d.delA; }); feito(); });
+    if (d.delU) return pedirConfirmacao(b, 'Excluir este registro de uso?', function () { D.usos = D.usos.filter(function (x) { return x.id !== d.delU; }); feito(); });
+    if (d.delM && D.medidores.length > 1) {
       var n = D.leituras.filter(function (l) { return l.medidorId === d.delM; }).length;
       if (!confirm('Excluir este medidor?' + (n ? ' As ' + n + ' leituras dele são mantidas como "Medidor removido".' : '') +
         (D.medidores.length === 1 ? '\n\nÉ o único medidor: o app vai pedir o cadastro inicial de novo.' : ''))) return;
@@ -1227,7 +1366,7 @@
     var m = { id: novoId(), nome: dist && dist !== 'Outra' ? dist + ' ' + codigo : codigo, codigo: codigo, distribuidora: dist, mult: mult };
     // só grava no final (nada é salvo se o usuário sair no meio)
     D.medidores.push(m);
-    D.leituras.push({ id: novoId(), ts: onb.ts || new Date().toISOString(), kwh: numero($('o-leitura').value), medidorId: m.id });
+    D.leituras.push({ id: novoId(), ts: onb.ts || new Date().toISOString(), kwh: numero($('o-leitura').value), medidorId: m.id, criadoEm: new Date().toISOString() });
     D.aparelhos = onb.aps.filter(function (x) { return x.on; }).map(function (x) { return x.ap; });
     D.seeded = true;
     var cfgN = tarifaPadrao();
@@ -1414,6 +1553,7 @@
     return '<div style="margin-top:8px"><b>v' + n.v + '</b><ul>' + n.itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul></div>';
   }).join('');
 
+  atualizaTsLeitura();
   if (ADIAR_SEED) {
     $('nuvem-espera').hidden = false;
     var liberar = function () {
@@ -1437,5 +1577,5 @@
   window.__ve = { calcular: calcular, dados: function () { return D; }, calcularCusto: calcularCusto, detalharCusto: detalharCusto,
     tarifaPadrao: tarifaPadrao, tar: function () { return TAR; },
     mesclar: mesclar, shards: shards, montar: montar, sync: function () { return { estado: estadoSync, erro: erroSync, fb: FB, st: ST }; },
-    puxar: puxar, empurrar: empurrar }; // para testes
+    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura }; // para testes
 })();
