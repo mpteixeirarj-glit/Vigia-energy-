@@ -274,6 +274,22 @@
   .modal{position:fixed; inset:0; z-index:80; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; padding:16px}
   .modal[hidden]{display:none}
   .modal-caixa{background:var(--card); border:2px solid var(--ciano); padding:18px; width:100%; max-width:380px; max-height:100%; overflow-y:auto; box-shadow:6px 6px 0 #05060a}
+  /* resumo do período, ordenação, popup de bandeira */
+  .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px}
+  .btn-ordem{background:transparent; border:2px solid var(--borda); color:var(--dim); font-family:var(--pixel); font-size:7px; padding:6px 8px; cursor:pointer; white-space:nowrap; flex:none; min-height:30px}
+  .btn-ordem:hover{border-color:var(--ciano); color:var(--ciano)}
+  .chips.periodo{margin:12px 0; flex-wrap:wrap}
+  .chips.periodo .chip{flex:1 1 auto}
+  .rp-linha{display:flex; justify-content:space-between; gap:8px; padding:5px 0; font-size:13px}
+  .rp-linha span:last-child{font-family:var(--mono); text-align:right}
+  .rp-linha.destaque span:last-child{color:var(--ciano); font-size:16px}
+  .rp-linha.custo{border-top:2px dashed var(--borda); margin-top:4px; padding-top:9px}
+  .rp-linha.custo span{color:var(--amarelo)} .rp-linha.custo span:last-child{font-size:16px}
+  .rp-box{border:2px solid var(--borda); background:var(--bg); padding:10px 12px}
+  .rp-nota{font-size:11px; color:var(--dim); margin-top:8px; line-height:1.5}
+  header{position:sticky}
+  .popup-bandeira{position:absolute; left:16px; right:16px; top:100%; margin-top:4px; z-index:20; max-width:420px;
+    background:var(--card); border:2px solid var(--ciano); padding:12px; box-shadow:4px 4px 0 #05060a}
   .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
     font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:60; display:none; max-width:90vw; line-height:1.6}
   .so-print{display:none}
@@ -401,6 +417,14 @@
     <a class="hbtn txt esp" href="../index.html" title="Voltar ao hub">HUB</a>
     <button type="button" class="hbtn" id="btn-hamb" hidden aria-label="Abrir menu" aria-controls="nav" aria-expanded="false">☰</button>
   </div>
+  <div class="popup-bandeira" id="popup-bandeira" hidden role="dialog" aria-label="Bandeira tarifária">
+    <p class="pixel" style="font-size:8px;color:var(--dim);margin-bottom:8px">BANDEIRA TARIFÁRIA</p>
+    <div class="bandeiras" id="pop-band" role="radiogroup"></div>
+    <div class="linha" style="margin-top:10px;align-items:center">
+      <button type="button" class="link" id="pop-cfg" style="text-align:left">Editar tarifas →</button>
+      <button type="button" class="btn mini" id="pop-fechar" style="flex:0 0 auto">FECHAR</button>
+    </div>
+  </div>
   <div class="hl2">
     <span class="ver" id="ver"></span>
     <button type="button" class="badge-band" id="hdr-band" aria-label="Bandeira tarifária atual"></button>
@@ -502,6 +526,33 @@
 
   <!-- ⚡ MEDIDOR — só gerenciamento -->
   <section class="aba" id="aba-medidor">
+    <div class="card" id="card-resumo-periodo">
+      <h2>📊 RESUMO DO PERÍODO</h2>
+      <div class="linha">
+        <div><label for="resumo-data-inicio">De</label><input type="date" id="resumo-data-inicio"></div>
+        <div><label for="resumo-data-fim">Até</label><input type="date" id="resumo-data-fim"></div>
+      </div>
+      <div id="rp-campo-med" hidden><label for="rp-med">Medidor</label><select id="rp-med"></select></div>
+      <div class="chips periodo" role="radiogroup" aria-label="Atalhos de período">
+        <button type="button" class="chip" role="radio" data-periodo="7">7 DIAS</button>
+        <button type="button" class="chip" role="radio" data-periodo="15">15 DIAS</button>
+        <button type="button" class="chip" role="radio" data-periodo="30">30 DIAS</button>
+        <button type="button" class="chip" role="radio" data-periodo="mes">MÊS ATUAL</button>
+      </div>
+      <div id="resumo-periodo-resultado"></div>
+    </div>
+    <div class="card">
+      <h2>📆 CICLOS DE FATURAMENTO</h2>
+      <p class="dim" style="font-size:12px">Marque "início de ciclo" na leitura do dia em que a distribuidora lê o medidor. O custo usa a tarifa por faixas sobre o consumo de cada ciclo.</p>
+      <div id="ciclos"></div>
+    </div>
+    <div class="card">
+      <div class="card-top"><h2>📜 HISTÓRICO DE LEITURAS</h2><button type="button" class="btn-ordem" id="btn-ordem-leituras" aria-label="Alternar ordem do histórico">↓ RECENTE</button></div>
+      <label for="lh-med">Medidor</label>
+      <select id="lh-med"></select>
+      <div class="rolagem" id="lh-tab"></div>
+      <div class="pager" id="lh-pag"></div>
+    </div>
     <div class="card">
       <h2>📟 MEDIDORES CADASTRADOS</h2>
       <ul class="lista" id="m-lista"></ul>
@@ -519,18 +570,6 @@
       </details>
       <button class="btn full" type="submit">ADICIONAR MEDIDOR</button>
     </form>
-    <div class="card">
-      <h2>📜 HISTÓRICO DE LEITURAS</h2>
-      <label for="lh-med">Medidor</label>
-      <select id="lh-med"></select>
-      <div class="rolagem" id="lh-tab"></div>
-      <div class="pager" id="lh-pag"></div>
-    </div>
-    <div class="card">
-      <h2>📆 CICLOS DE FATURAMENTO</h2>
-      <p class="dim" style="font-size:12px">Marque "início de ciclo" na leitura do dia em que a distribuidora lê o medidor. O custo usa a tarifa por faixas sobre o consumo de cada ciclo.</p>
-      <div id="ciclos"></div>
-    </div>
   </section>
 
   <!-- 🔌 APARELHOS -->
@@ -610,10 +649,11 @@
       <div id="r-rank"></div>
     </div>
     <div class="card" id="card-int">
-      <h2>⏱ INTERVALOS POR MEDIDOR</h2>
+      <div class="card-top"><h2>⏱ INTERVALOS POR MEDIDOR</h2><button type="button" class="btn-ordem" id="btn-ordem-intervalos" aria-label="Alternar ordem dos intervalos">↓ RECENTE</button></div>
       <p class="dim" style="font-size:12px">Fundo = medido no relógio − estimado pelos usos registrados (geladeira, standby, o que você não anotou).</p>
       <div id="r-int"></div>
     </div>
+    <div class="card" id="pesquisa-resumo-periodo" hidden></div>
     <div class="card" id="p-res"></div>
   </section>
 

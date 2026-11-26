@@ -323,7 +323,7 @@
     if (precisaOnboarding()) { mostrarOnboarding(); return; }
     fecharOnboarding();
     atualizaTarifa();
-    renderMedidores(); renderInicio(); renderHistLeituras(); renderCiclos(); renderAparelhos(); renderRepetir();
+    renderMedidores(); renderInicio(); renderResumoPeriodo(); renderHistLeituras(); renderCiclos(); renderAparelhos(); renderRepetir();
     renderCalendario(); renderFiltros();
     if (abaAtual === 'pesquisa') pesquisar();
     renderCfgTarifa();
@@ -411,21 +411,109 @@
     }
   }
 
+  // ───────── consumo de um período: rateio de cada intervalo entre leituras ─────────
+  /* Para cada par de leituras consecutivas do medidor, conta só a fração do intervalo que cai
+   * dentro de [ini 00:00, fim 23:59:59] (consumo suposto uniforme dentro do intervalo).
+   * Assim o período não depende de haver leitura exatamente nas bordas, e a média diária
+   * usa os dias COBERTOS por dados — não os dias do calendário. Intervalos negativos
+   * (troca de medidor/erro) ficam de fora e são avisados. */
+  function consumoPeriodo(iniK, fimK, md) {
+    var p = iniK.split('-'), q = fimK.split('-');
+    var t0 = new Date(+p[0], +p[1] - 1, +p[2]).getTime(), t1 = new Date(+q[0], +q[1] - 1, +q[2] + 1).getTime();
+    var diasPeriodo = Math.round((t1 - t0) / 864e5), out = { kwh: 0, cobertoMs: 0, diasPeriodo: diasPeriodo, negativos: 0, nLeituras: 0, med: [] };
+    var meds = D.medidores.filter(function (m) { return !md || m.id === md; });
+    meds.forEach(function (m) {
+      var L = ord(D.leituras.filter(function (l) { return l.medidorId === m.id; })), mult = m.mult || 1, r = { nome: m.nome, kwh: 0, ini: null, fim: null };
+      out.nLeituras += L.filter(function (l) { var t = new Date(l.ts).getTime(); return t >= t0 && t < t1; }).length;
+      var coberto = 0;
+      for (var i = 1; i < L.length; i++) {
+        var a = new Date(L[i - 1].ts).getTime(), b = new Date(L[i].ts).getTime(), d = (L[i].kwh - L[i - 1].kwh) * mult;
+        var s0 = Math.max(a, t0), s1 = Math.min(b, t1);
+        if (s1 <= s0 || b <= a) continue;
+        if (d < 0) { out.negativos++; continue; }
+        var frac = (s1 - s0) / (b - a);
+        r.kwh += d * frac; coberto += s1 - s0;
+        var v0 = L[i - 1].kwh + (L[i].kwh - L[i - 1].kwh) * (s0 - a) / (b - a), v1 = L[i - 1].kwh + (L[i].kwh - L[i - 1].kwh) * (s1 - a) / (b - a);
+        if (!r.ini) r.ini = { kwh: v0, t: s0, exata: s0 === a }; r.fim = { kwh: v1, t: s1, exata: s1 === b };
+      }
+      out.kwh += r.kwh; out.cobertoMs = Math.max(out.cobertoMs, coberto);
+      if (r.ini) out.med.push(r);
+    });
+    out.cobertoDias = out.cobertoMs / 864e5;
+    out.media = out.cobertoDias >= 0.04 ? out.kwh / out.cobertoDias : null;   // ≥ 1 hora de dados
+    out.valido = out.med.length > 0 && out.media !== null;
+    return out;
+  }
+  function htmlResumoPeriodo(r, compacto) {
+    if (!r.valido) return '<p class="aviso-retro">⚠ Sem leituras suficientes cobrindo este período (são necessárias leituras antes e depois de algum trecho dele).</p>';
+    var cobreTudo = r.cobertoDias >= r.diasPeriodo - 0.05, proj = !cobreTudo && r.media !== null ? r.media * r.diasPeriodo : null;
+    var ln = function (a, b, cls) { return '<div class="rp-linha' + (cls ? ' ' + cls : '') + '"><span>' + a + '</span><span>' + b + '</span></div>'; };
+    var dtc = function (t) { return dt(new Date(t).toISOString()); };
+    var h = '<div class="rp-box">' + ln('Período', r.diasPeriodo + ' dia' + (r.diasPeriodo === 1 ? '' : 's') + (cobreTudo ? '' : ' · dados em ' + nf(r.cobertoDias, 1) + ' dias'));
+    if (!compacto && r.med.length === 1) {
+      var m = r.med[0];
+      h += ln('Leitura inicial' + (m.ini.exata ? '' : ' ≈'), nf(m.ini.kwh, 1) + ' kWh<br><small class="dim">' + dtc(m.ini.t) + '</small>');
+      h += ln('Leitura final' + (m.fim.exata ? '' : ' ≈'), nf(m.fim.kwh, 1) + ' kWh<br><small class="dim">' + dtc(m.fim.t) + '</small>');
+    } else if (!compacto) r.med.forEach(function (m) { h += ln('📟 ' + esc(m.nome), kwh(m.kwh)); });
+    h += ln('Consumo', kwh(r.kwh), 'destaque');
+    h += ln('Média diária', kwh(r.media) + '/dia');
+    if (proj !== null) h += ln('Projeção p/ o período todo', kwh(proj));
+    h += ln('Custo estimado', brl(custo(r.kwh)), 'custo');
+    h += ln('<span class="dim">Equivalente a 30 dias</span>', '<span class="dim">' + kwh(r.media * 30) + ' · ' + brl(calcularCusto(r.media * 30)) + '</span>');
+    h += '</div>';
+    if (r.negativos) h += '<div class="alerta">⚠ ' + r.negativos + ' intervalo(s) com consumo negativo (troca de medidor ou leitura errada) ficaram de fora.</div>';
+    if (!compacto) h += '<p class="rp-nota">≈ = valor estimado proporcionalmente entre as leituras vizinhas. Custo pela tarifa média efetiva (' + rs5(TAR.efetiva) + '/kWh, ' + obterNomeBandeira() +
+      '); "Equivalente a 30 dias" aplica as faixas sobre um mês nesse ritmo. Confira se as tarifas configuradas já incluem ICMS, PIS e COFINS.</p>';
+    return h;
+  }
+  function obterNomeBandeira() { var b = D.tarifaCfg.bandeira; return 'Bandeira ' + ((D.tarifaCfg.bandeiras[b] || {}).label || b); }
+  function diaMenos(n) { var d = new Date(); d.setDate(d.getDate() - n); return diaKey(d); }
+  var rpPeriodo = '30';
+  function aplicarAtalhoPeriodo(per) {
+    rpPeriodo = per;
+    var fimK = diaKey(new Date()), iniK = per === 'mes' ? diaKey(new Date(new Date().getFullYear(), new Date().getMonth(), 1)) : diaMenos(Number(per) - 1); // N dias incluindo hoje
+    $('resumo-data-inicio').value = iniK; $('resumo-data-fim').value = fimK;
+    renderResumoPeriodo();
+  }
+  function renderResumoPeriodo() {
+    document.querySelectorAll('#card-resumo-periodo .chip').forEach(function (c) { var on = c.dataset.periodo === rpPeriodo; c.classList.toggle('on', on); c.setAttribute('aria-checked', on); });
+    opcoesMedidores($('rp-med'), '<option value="">Todos os medidores</option>');
+    $('rp-campo-med').hidden = D.medidores.length < 2;
+    var a = $('resumo-data-inicio').value, b = $('resumo-data-fim').value;
+    if (!a || !b) { $('resumo-periodo-resultado').innerHTML = '<p class="vazio">Selecione um período acima.</p>'; return; }
+    if (a > b) { $('resumo-periodo-resultado').innerHTML = '<p class="aviso-retro">⚠ A data inicial é depois da final.</p>'; return; }
+    $('resumo-periodo-resultado').innerHTML = htmlResumoPeriodo(consumoPeriodo(a, b, $('rp-med').value));
+  }
+  ['resumo-data-inicio', 'resumo-data-fim'].forEach(function (id) { $(id).addEventListener('change', function () { rpPeriodo = ''; renderResumoPeriodo(); }); });
+  $('rp-med').onchange = renderResumoPeriodo;
+  $('card-resumo-periodo').addEventListener('click', function (e) { var c = e.target.closest('.chip'); if (c) aplicarAtalhoPeriodo(c.dataset.periodo); });
+
+  // ───────── ordem (preferência do aparelho) ─────────
+  function lerPref(k, padrao) { try { return localStorage.getItem(k) || padrao; } catch (e) { return padrao; } }
+  function gravarPref(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  var ordemLeiturasDesc = lerPref('ve_ordem_leituras', 'desc') === 'desc', ordemIntervalosDesc = lerPref('ve_ordem_intervalos', 'desc') === 'desc';
+  function rotuloOrdem(desc) { return desc ? '↓ RECENTE' : '↑ ANTIGA'; }
+  $('btn-ordem-leituras').onclick = function () { ordemLeiturasDesc = !ordemLeiturasDesc; gravarPref('ve_ordem_leituras', ordemLeiturasDesc ? 'desc' : 'asc'); hist.pag = 0; renderHistLeituras(); };
+  $('btn-ordem-intervalos').onclick = function () { ordemIntervalosDesc = !ordemIntervalosDesc; gravarPref('ve_ordem_intervalos', ordemIntervalosDesc ? 'desc' : 'asc'); pesquisar(); };
+
   // ───────── histórico de leituras (aba Medidor), 20 por página ─────────
   var hist = { pag: 0, POR: 20 };
   function renderHistLeituras() {
     var md = $('lh-med').value;
-    var L = ord(D.leituras.filter(function (l) { return !md || l.medidorId === md; })).reverse();
+    var L = ord(D.leituras.filter(function (l) { return !md || l.medidorId === md; }));
+    if (ordemLeiturasDesc) L.reverse();
+    $('btn-ordem-leituras').textContent = rotuloOrdem(ordemLeiturasDesc);
     var npag = Math.max(1, Math.ceil(L.length / hist.POR));
     if (hist.pag >= npag) hist.pag = npag - 1;
     var pg = L.slice(hist.pag * hist.POR, (hist.pag + 1) * hist.POR);
     $('lh-tab').innerHTML = L.length ? '<table class="tabela"><thead><tr><th>DATA/HORA</th><th>MEDIDOR</th><th class="n">LEITURA (KWH)</th><th></th></tr></thead><tbody>' +
       pg.map(function (l) {
-        // lista do mais novo para o mais antigo: a marca fica logo ABAIXO da leitura que abre o ciclo,
-        // separando-a das leituras do ciclo anterior
-        return '<tr><td class="num">' + dt(l.ts) + badgesLeitura(l) + obsLeitura(l) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td>' +
-          '<td class="n">' + acoesLeitura(l) + '</td></tr>' +
-          (l.inicioCiclo ? '<tr class="sep-ciclo"><td colspan="4">── ▲ INÍCIO DE CICLO · ' + dt(l.ts).slice(0, 8) + ' ──</td></tr>' : '');
+        // a marca separa a leitura que abre o ciclo das leituras do ciclo ANTERIOR:
+        // abaixo dela na ordem recente→antiga, acima dela na ordem antiga→recente
+        var sep = l.inicioCiclo ? '<tr class="sep-ciclo"><td colspan="4">── ' + (ordemLeiturasDesc ? '▲' : '▼') + ' INÍCIO DE CICLO · ' + dt(l.ts).slice(0, 8) + ' ──</td></tr>' : '';
+        var linha = '<tr><td class="num">' + dt(l.ts) + badgesLeitura(l) + obsLeitura(l) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td>' +
+          '<td class="n">' + acoesLeitura(l) + '</td></tr>';
+        return ordemLeiturasDesc ? linha + sep : sep + linha;
       }).join('') + '</tbody></table>' : '<p class="vazio">Nenhuma leitura.</p>';
     $('lh-pag').innerHTML = npag > 1 ? '<button type="button" class="btn" id="lh-ant"' + (hist.pag === 0 ? ' disabled' : '') + ' aria-label="Página anterior">‹</button>' +
       '<span>Página ' + (hist.pag + 1) + ' de ' + npag + ' · ' + L.length + ' leituras</span>' +
@@ -674,9 +762,20 @@
     // simulação/projeção da conta: sempre sobre TODO o histórico (independe do filtro)
     var mes = TAR.ref, contaMes = mes ? calcularCusto(mes) : null;
     var k = '';
-    k += kpi('MEDIDO NO PERÍODO', R.total ? kwh(R.total) : '—', R.total ? brl(custo(R.total)) : 'precisa de 2 leituras');
-    k += kpi('PERÍODO', R.dias ? nf(R.dias, 1) + ' dias' : '—', R.nLeituras + ' leituras · ' + R.grupos.length + ' medidor' + (R.grupos.length === 1 ? '' : 'es'));
-    k += kpi('MÉDIA/DIA', R.porDia !== null ? kwh(R.porDia) : '—', R.porDia !== null ? brl(custo(R.porDia)) : '');
+    $('btn-ordem-intervalos').textContent = rotuloOrdem(ordemIntervalosDesc);
+    // com datas: mesmo cálculo do Resumo do Período (rateio nas bordas), para os números baterem
+    var cp = filtro && (filtro.ini || filtro.fim) ? consumoPeriodo(filtro.ini || primeiroDia(), filtro.fim || diaKey(new Date()), filtro.md) : null;
+    if (cp && cp.valido) {
+      k += kpi('MEDIDO NO PERÍODO', kwh(cp.kwh), brl(custo(cp.kwh)));
+      k += kpi('PERÍODO', cp.diasPeriodo + ' dias', cp.nLeituras + ' leituras' + (cp.cobertoDias < cp.diasPeriodo - 0.05 ? ' · dados em ' + nf(cp.cobertoDias, 1) + ' d' : ''));
+      k += kpi('MÉDIA/DIA', kwh(cp.media), brl(custo(cp.media)));
+    } else {
+      k += kpi('MEDIDO NO PERÍODO', R.total ? kwh(R.total) : '—', R.total ? brl(custo(R.total)) : 'precisa de 2 leituras');
+      k += kpi('PERÍODO', R.dias ? nf(R.dias, 1) + ' dias' : '—', R.nLeituras + ' leituras · ' + R.grupos.length + ' medidor' + (R.grupos.length === 1 ? '' : 'es'));
+      k += kpi('MÉDIA/DIA', R.porDia !== null ? kwh(R.porDia) : '—', R.porDia !== null ? brl(custo(R.porDia)) : '');
+    }
+    $('pesquisa-resumo-periodo').hidden = !(filtro && filtro.ini && filtro.fim);
+    if (filtro && filtro.ini && filtro.fim) $('pesquisa-resumo-periodo').innerHTML = '<h2>⚡ CONSUMO DO PERÍODO</h2>' + htmlResumoPeriodo(consumoPeriodo(filtro.ini, filtro.fim, filtro.md), false);
     k += kpi('PROJEÇÃO 30 DIAS', contaMes !== null ? brl(contaMes) : '—', mes ? kwh(mes) + ' · todo o histórico' : '');
     $('r-kpis').innerHTML = k + (R.porDia !== null && R.diasMin < 3 ? '<p class="dim" style="grid-column:1/-1;font-size:12px">Médias com menos de 3 dias de dados são pouco confiáveis.</p>' : '');
 
@@ -697,7 +796,8 @@
         '<div class="dim num" style="font-size:12px">' + g.n + ' leituras · total ' + kwh(g.total) + ' · ' + brl(custo(g.total)) + '</div>';
       if (g.id === DESCONHECIDO) cab += '<p class="alerta">Leituras antigas sem medidor (havia mais de um medidor na migração).</p>';
       if (!g.intervalos.length) return cab + '<p class="vazio">Precisa de ao menos duas leituras deste medidor.</p></div>';
-      return cab + g.intervalos.slice().reverse().map(function (x) {
+      var ivs = ordemIntervalosDesc ? g.intervalos.slice().reverse() : g.intervalos.slice();
+      return cab + ivs.map(function (x) {
         var fcls = x.fundo >= 0 ? 'pos' : 'neg', alerta = '';
         if (x.medido < 0) alerta = '⚠ Leitura menor que a anterior — erro de digitação ou troca de medidor.';
         else if (x.fundo < 0) alerta = '⚠ Usos registrados superam o medido — potência, minutos ou horário errados.';
@@ -791,6 +891,7 @@
         }).join('') + '</tbody></table></div>' : '<p class="vazio">Nenhum uso.</p>') +
       '<div class="total-box"><span>Total dos usos no período</span><b>' + kwh(tot) + ' · ' + brl(custo(tot)) + '</b></div>';
   }
+  function primeiroDia() { var L = ord(D.leituras); return L.length ? diaKey(L[0].ts) : diaKey(new Date()); }
   function dataBr(k) { var p = k.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; }
   $('f-pesq').onsubmit = function (e) { e.preventDefault(); pesquisar(); };
   function limparFiltros() { $('p-ini').value = $('p-fim').value = ''; $('p-ap').value = ''; $('p-med').value = ''; }
@@ -1163,7 +1264,10 @@
   document.body.addEventListener('click', function (e) {
     var b = e.target.closest('.band-op'); if (!b) return;
     b.parentNode.querySelectorAll('.band-op').forEach(function (x) { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', x === b); });
-    if (b.dataset.grupo === 'cfg') { D.tarifaCfg.bandeira = b.dataset.band; salvarTarifa('BANDEIRA ' + BAND_UI[b.dataset.band].curto + ' ✓'); }
+    if (b.dataset.grupo === 'cfg' || b.dataset.grupo === 'pop') {
+      if (b.dataset.grupo === 'pop') fecharPopupBandeira();
+      D.tarifaCfg.bandeira = b.dataset.band; salvarTarifa('BANDEIRA ' + BAND_UI[b.dataset.band].curto + ' ✓');
+    }
   });
   $('t-salvar-faixas').onclick = function () {
     var f = lerFaixas('tf'); if (typeof f === 'string') return toast(f.toUpperCase());
@@ -1186,10 +1290,21 @@
     if (!confirm('Restaurar faixas e acréscimos para a referência Light (nov/2026)? A bandeira atual é mantida.')) return;
     var p = tarifaPadrao(); p.bandeira = D.tarifaCfg.bandeira; D.tarifaCfg = p; salvarTarifa('VALORES LIGHT RESTAURADOS ✓');
   };
-  $('hdr-band').onclick = function () {
-    irPara('config');
+  // badge da bandeira: mini-seletor no próprio topo (mudar a bandeira recalcula todas as telas via render())
+  function abrirPopupBandeira() {
+    $('pop-band').innerHTML = htmlBandeiras('pop', D.tarifaCfg.bandeira, D.tarifaCfg);
+    $('popup-bandeira').hidden = false; $('hdr-band').setAttribute('aria-expanded', 'true');
+    var on = $('pop-band').querySelector('.on'); if (on) on.focus();
+  }
+  function fecharPopupBandeira() { $('popup-bandeira').hidden = true; $('hdr-band').setAttribute('aria-expanded', 'false'); }
+  $('hdr-band').onclick = function (e) { e.stopPropagation(); if ($('popup-bandeira').hidden) abrirPopupBandeira(); else fecharPopupBandeira(); };
+  $('pop-fechar').onclick = fecharPopupBandeira;
+  $('pop-cfg').onclick = function () {
+    fecharPopupBandeira(); irPara('config');
     setTimeout(function () { $('cfg-tarifa').scrollIntoView({ block: 'start' }); window.scrollBy(0, -90); }, 30);
   };
+  document.addEventListener('click', function (e) { if (!$('popup-bandeira').hidden && !e.target.closest('#popup-bandeira') && e.target.id !== 'hdr-band') fecharPopupBandeira(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fecharPopupBandeira(); });
 
   $('c-exp').onclick = function () {
     var blob = new Blob([JSON.stringify({ app: 'vigia-energy', versaoApp: VERSAO, exportado: new Date().toISOString(), dados: D }, null, 2)], { type: 'application/json' });
@@ -1554,6 +1669,7 @@
   }).join('');
 
   atualizaTsLeitura();
+  aplicarAtalhoPeriodo('30');
   if (ADIAR_SEED) {
     $('nuvem-espera').hidden = false;
     var liberar = function () {
@@ -1577,5 +1693,5 @@
   window.__ve = { calcular: calcular, dados: function () { return D; }, calcularCusto: calcularCusto, detalharCusto: detalharCusto,
     tarifaPadrao: tarifaPadrao, tar: function () { return TAR; },
     mesclar: mesclar, shards: shards, montar: montar, sync: function () { return { estado: estadoSync, erro: erroSync, fb: FB, st: ST }; },
-    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura }; // para testes
+    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura, consumoPeriodo: consumoPeriodo }; // para testes
 })();

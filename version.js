@@ -1,8 +1,15 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.8.0';
+self.VE_VERSAO = '2.9.0';
 self.VE_NOVIDADES = [
+  { v: '2.9.0', itens: [
+    'Aba Medidor: Resumo do Período no topo (7/15/30 dias, mês atual ou datas livres)',
+    'Consumo do período rateado entre leituras: não depende de ler exatamente nas datas',
+    'Consumo do período também na Pesquisa',
+    'Ordem ↓ recente / ↑ antiga no histórico de leituras e nos intervalos (fica salva)',
+    'Toque na bandeira do topo para trocá-la ali mesmo'
+  ] },
   { v: '2.8.0', itens: [
     'Leitura: data/hora visível, observação e marca de início de ciclo',
     'Validação pelos vizinhos no tempo, com opção de forçar (troca de medidor)',
