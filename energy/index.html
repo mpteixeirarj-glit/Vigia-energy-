@@ -301,6 +301,13 @@
   label.sub-l{margin-top:2px; font-size:11px}
   .chips.dur{display:grid; grid-template-columns:repeat(6,1fr); gap:4px; margin-top:8px}
   .chips.dur .chip{padding:8px 2px; font-size:7px}
+  /* tributos / calibração / modo de uso */
+  .calibra{margin-top:14px; border:2px dashed var(--borda); padding:8px 10px}
+  .calibra summary{color:var(--ciano); font-size:14px; margin:0}
+  .cal-res{margin-top:10px; padding:10px; border:2px solid var(--ciano); font-size:13px}
+  .chips.modo-uso .chip{padding:7px 8px; font-size:7px}
+  .sim-sub td{color:var(--dim); font-size:12px}
+  .faixa-alerta{margin-top:8px; padding:8px 10px; border-left:3px solid var(--amarelo); color:var(--amarelo); font-size:12px}
   .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
     font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:60; display:none; max-width:90vw; line-height:1.6}
   .so-print{display:none}
@@ -388,8 +395,9 @@
       <h2>💰 TARIFA DE ENERGIA</h2>
       <p class="onb-dist">Distribuidora: <b id="o-dist-txt"></b></p>
       <div id="o-tar-light" hidden>
-        <p class="onb-inst">As tarifas da Light já estão configuradas. Você pode ajustá-las depois em Configurações.</p>
+        <p class="onb-inst">As tarifas da Light e os tributos do Rio já estão configurados. Você pode ajustá-los depois em Configurações — o melhor é calibrar com uma conta real.</p>
         <table class="tab onb-tab" id="o-tar-tab"></table>
+        <label class="toggle"><input type="checkbox" id="o-cosip" checked> Moro na cidade do Rio de Janeiro (cobra COSIP de iluminação pública)</label>
       </div>
       <div id="o-tar-edit" hidden>
         <p class="onb-inst">Informe as tarifas por faixa de consumo da sua distribuidora (estão na sua conta de luz). Os valores abaixo são da Light, só como ponto de partida.</p>
@@ -498,7 +506,23 @@
         <button type="button" class="btn mini" id="u-lamp-add" style="margin-top:8px">+ OUTRO TIPO DE LÂMPADA</button>
         <div class="dim" id="u-lamp-dica" style="font-size:12px;margin-top:6px"></div>
       </div>
-      <label>Tempo de uso</label>
+      <div class="card-top" style="align-items:flex-end"><label style="margin-bottom:6px">Tempo de uso</label>
+        <div class="chips modo-uso" id="u-modo" role="radiogroup" aria-label="Como informar o tempo">
+          <button type="button" class="chip" role="radio" data-modo="dur">DURAÇÃO</button>
+          <button type="button" class="chip" role="radio" data-modo="hor">INÍCIO E FIM</button>
+        </div>
+      </div>
+      <div id="u-bloco-hor" hidden>
+        <div class="linha dur">
+          <div><label for="u-ini" class="sub-l">Início</label><input id="u-ini" type="time"></div>
+          <div><label for="u-fim" class="sub-l">Fim</label><input id="u-fim" type="time"></div>
+        </div>
+        <div class="linha dur" id="u-hor-l2">
+          <div><label for="u-dia" class="sub-l">Dia do início</label><input id="u-dia" type="date"></div>
+        </div>
+        <small class="dim" style="font-size:12px;display:block;margin-top:4px">Se o fim for menor que o início, termina no dia seguinte (ex.: 22:00 → 06:00).</small>
+      </div>
+      <div id="u-bloco-dur">
       <div class="linha dur">
         <div><label for="u-h" class="sub-l">Horas</label><input id="u-h" class="num" inputmode="decimal" placeholder="0" autocomplete="off"></div>
         <div><label for="u-m" class="sub-l">Minutos</label><input id="u-m" class="num" inputmode="numeric" placeholder="0" autocomplete="off"></div>
@@ -512,9 +536,10 @@
         <button type="button" class="chip" data-min="240">4 H</button>
         <button type="button" class="chip" data-min="480">8 H</button>
       </div>
-      <details><summary>Ajustar horário do fim do uso (padrão: agora)</summary>
+      <details id="u-det-ts"><summary>Ajustar horário do fim do uso (padrão: agora)</summary>
         <input id="u-ts" type="datetime-local" style="margin-top:6px">
       </details>
+      </div>
       <div class="prev" id="u-prev"></div>
       <button class="btn full" type="submit">REGISTRAR</button>
     </form>
@@ -656,7 +681,7 @@
       </div>
       <p class="dim" id="p-filtro" style="font-size:12px;margin-top:10px"></p>
     </form>
-    <p class="nota-est">⚠️ Estimativa baseada em consumo registrado manualmente e nas tarifas configuradas. Não inclui contribuição de iluminação pública, multas ou créditos da conta real — e confira se as tarifas informadas já incluem ICMS, PIS e COFINS.</p>
+    <p class="nota-est">⚠️ Estimativa com as tarifas e tributos de Config → Tarifa. A conta real varia com o PIS/COFINS do mês, multas, juros e créditos. Calibre com uma conta real para chegar perto.</p>
     <div class="card">
       <h2>📊 RESUMO DO PERÍODO</h2>
       <div class="kpis" id="r-kpis"></div>
@@ -704,14 +729,63 @@
       <p class="dim" style="font-size:12px;margin-top:8px">A bandeira é definida mensalmente pela ANEEL. Verifique em aneel.gov.br</p>
 
       <div class="sep"></div>
-      <h3>FAIXAS DE CONSUMO</h3>
-      <div class="rolagem" id="t-faixas"></div>
-      <label for="t-modo">Como aplicar as faixas</label>
-      <select id="t-modo">
-        <option value="progressivo">Progressivo — cada faixa cobra só a sua parte</option>
-        <option value="faixa_unica">Faixa única — a faixa atingida vale para todo o consumo</option>
+      <label for="t-calc">Como calcular a conta</label>
+      <select id="t-calc">
+        <option value="tributos">Tarifa sem impostos + tributos (ICMS, PIS/COFINS, COSIP)</option>
+        <option value="embutido">Tarifas por faixa com impostos já incluídos</option>
       </select>
-      <button type="button" class="btn full" id="t-salvar-faixas">💾 SALVAR TARIFA</button>
+
+      <div id="t-sec-trib">
+        <h3>TARIFA BASE (SEM IMPOSTOS)</h3>
+        <label for="tt-base">TE + TUSD — R$ por kWh</label>
+        <input id="tt-base" class="num" inputmode="decimal">
+        <p class="dim" style="font-size:12px;margin-top:4px">Na conta aparece como "Consumo" ou "Energia" antes dos tributos. Não sabe? Use "Calibrar pela minha conta" abaixo.</p>
+        <h3>PIS / COFINS (%)</h3>
+        <div class="linha">
+          <div><label for="tt-pis">PIS</label><input id="tt-pis" class="num" inputmode="decimal"></div>
+          <div><label for="tt-cof">COFINS</label><input id="tt-cof" class="num" inputmode="decimal"></div>
+        </div>
+        <p class="dim" style="font-size:12px;margin-top:4px">A distribuidora muda essas alíquotas todo mês; o valor do mês vem impresso na conta.</p>
+        <h3>ICMS POR CONSUMO DO MÊS</h3>
+        <div class="rolagem"><table class="tabela faixas"><thead><tr><th>FAIXA</th><th>ATÉ (KWH)</th><th>ALÍQUOTA %</th></tr></thead><tbody>
+          <tr><td>1</td><td><input id="tt-i1a" class="num" inputmode="numeric" aria-label="ICMS faixa 1 até kWh"></td><td><input id="tt-i1" class="num" inputmode="decimal" aria-label="ICMS faixa 1 %"></td></tr>
+          <tr><td>2</td><td><input id="tt-i2a" class="num" inputmode="numeric" aria-label="ICMS faixa 2 até kWh"></td><td><input id="tt-i2" class="num" inputmode="decimal" aria-label="ICMS faixa 2 %"></td></tr>
+          <tr><td>3</td><td><input id="tt-i3a" class="num" disabled aria-label="ICMS faixa 3"></td><td><input id="tt-i3" class="num" inputmode="decimal" aria-label="ICMS faixa 3 %"></td></tr>
+        </tbody></table></div>
+        <p class="dim" style="font-size:12px;margin-top:4px">A alíquota da faixa atingida vale para a conta inteira, calculada "por dentro".</p>
+        <h3>ILUMINAÇÃO PÚBLICA (COSIP)</h3>
+        <label class="toggle"><input type="checkbox" id="tt-cosip-on"> Cobrar COSIP (cidade do Rio de Janeiro)</label>
+        <div class="linha" id="tt-cosip-campos">
+          <div><label for="tt-cosip-lim">Isento até (kWh)</label><input id="tt-cosip-lim" class="num" inputmode="numeric"></div>
+          <div><label for="tt-cosip-v">Valor acima (R$/mês)</label><input id="tt-cosip-v" class="num" inputmode="decimal"></div>
+        </div>
+        <p class="dim" style="font-size:12px;margin-top:4px">O valor depende da sua faixa de consumo e da bandeira: copie o da sua última conta.</p>
+        <button type="button" class="btn full" id="t-salvar-trib">💾 SALVAR TRIBUTOS</button>
+        <details class="calibra"><summary>🧮 Calibrar pela minha conta</summary>
+          <p class="dim" style="font-size:12px;margin-top:8px">Com uma conta de luz real, o app descobre a tarifa base. Use uma conta sem multa, juros ou crédito.</p>
+          <div class="linha">
+            <div><label for="cal-kwh">Consumo faturado (kWh)</label><input id="cal-kwh" class="num" inputmode="decimal"></div>
+            <div><label for="cal-total">Total da conta (R$)</label><input id="cal-total" class="num" inputmode="decimal"></div>
+          </div>
+          <div class="linha">
+            <div><label for="cal-cosip">COSIP/CIP na conta (R$)</label><input id="cal-cosip" class="num" inputmode="decimal" placeholder="0"></div>
+            <div><label for="cal-band">Bandeira do mês</label><select id="cal-band"></select></div>
+          </div>
+          <button type="button" class="btn full" id="cal-calc">CALCULAR</button>
+          <div id="cal-res"></div>
+        </details>
+      </div>
+
+      <div id="t-sec-emb">
+        <h3>FAIXAS DE CONSUMO (COM IMPOSTOS)</h3>
+        <div class="rolagem" id="t-faixas"></div>
+        <label for="t-modo">Como aplicar as faixas</label>
+        <select id="t-modo">
+          <option value="progressivo">Progressivo — cada faixa cobra só a sua parte</option>
+          <option value="faixa_unica">Faixa única — a faixa atingida vale para todo o consumo</option>
+        </select>
+        <button type="button" class="btn full" id="t-salvar-faixas">💾 SALVAR TARIFA</button>
+      </div>
 
       <div class="sep"></div>
       <h3>ACRÉSCIMOS DE BANDEIRA (R$/KWH)</h3>
@@ -720,16 +794,15 @@
 
       <p class="dim" id="t-efetiva" style="font-size:12px;margin-top:12px"></p>
       <div class="rodape-tar">
-        Valores Light — residencial — vigentes em nov/2026<br>
-        Faixa 1: até 50 kWh → R$ 1,00844/kWh<br>
-        Faixa 2: 51 a 300 kWh → R$ 1,22980/kWh<br>
-        Faixa 3: acima de 300 kWh → R$ 1,32689/kWh<br>
-        Bandeira Amarela: +R$ 0,01885/kWh<br>
-        Bandeira Vermelha P1: +R$ 0,04463/kWh<br>
-        Bandeira Vermelha P2: +R$ 0,07877/kWh<br>
+        Referência Light — residencial — Rio de Janeiro (nov/2026)<br>
+        Tarifa base estimada: R$ 0,91516/kWh (calibre com sua conta)<br>
+        ICMS-RJ: até 50 kWh isento · 51–300 kWh 18% · acima de 300 kWh 24% (conta inteira)<br>
+        PIS 1,65% · COFINS 7,6% (alíquotas cheias; na conta costumam ser menores)<br>
+        COSIP Rio (Lei 9.049/2025): isento até 120 kWh · acima ≈ R$ 45/mês<br>
+        Bandeiras (sem impostos): Amarela +R$ 0,01885 · Verm. P1 +R$ 0,04463 · Verm. P2 +R$ 0,07877 por kWh<br>
         Última atualização registrada: <span id="t-atual"></span>
       </div>
-      <button type="button" class="btn full mini" id="t-restaurar" style="margin-top:10px">RESTAURAR VALORES LIGHT</button>
+      <button type="button" class="btn full mini" id="t-restaurar" style="margin-top:10px">RESTAURAR REFERÊNCIA LIGHT</button>
     </div>
     <div class="card">
       <h2>📄 RELATÓRIO</h2>

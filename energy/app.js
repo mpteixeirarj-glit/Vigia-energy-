@@ -43,6 +43,8 @@
   // ───────── dados ─────────
   // coleções sincronizadas (declarada aqui: o boot já usa, antes do bloco da nuvem)
   var COLS = ['medidores', 'aparelhos', 'leituras', 'usos'];
+  // tabela Light de referência até a v2.10 (declarada aqui: a migração roda no boot, antes do bloco da tarifa)
+  var LIGHT_FAIXAS_ANTIGAS = JSON.stringify([{ ate: 50, tarifa: 1.00844 }, { ate: 300, tarifa: 1.22980 }, { ate: null, tarifa: 1.32689 }]);
   function vazio() { return { versao: 2, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [], apagados: {}, cfgMod: 0 }; }
   function seeds() {
     // ids fixos: dois aparelhos que fazem o cadastro inicial não duplicam a lista ao sincronizar
@@ -98,6 +100,9 @@
       var cfg = tarifaPadrao();
       if (typeof d.tarifa === 'number' && d.tarifa > 0 && d.tarifa !== 1) cfg.faixas[1].tarifa = d.tarifa;
       d.tarifaCfg = cfg;
+    }
+    if (!d.tarifaCfg.calculo) {   // v2.11: tabela Light de referência → tributos; faixas personalizadas → mantém o modelo antigo
+      d.tarifaCfg.calculo = JSON.stringify((d.tarifaCfg.faixas || []).map(function (f) { return { ate: f.ate, tarifa: f.tarifa }; })) === LIGHT_FAIXAS_ANTIGAS ? 'tributos' : 'embutido';
     }
     d.tarifaCfg = Object.assign(tarifaPadrao(), d.tarifaCfg);
     delete d.tarifa;
@@ -187,6 +192,39 @@
     if (!(h >= 0) || !(m >= 0)) return NaN;
     return Math.round((h * 60 + m) * 10) / 10;   // "1,5" h = 90 min; "90" min também vale
   }
+  /* Modo "início e fim": o dia é o do INÍCIO; fim menor que o início termina no dia seguinte.
+   * Se o resultado cair no futuro (ex.: às 07:00 lançar 22:00→06:00 com o dia de hoje),
+   * entende-se que começou ontem. Fim = horário do registro (ts); início fica guardado. */
+  var usoModo = (function () { try { return localStorage.getItem('ve_uso_modo') === 'hor' ? 'hor' : 'dur'; } catch (e) { return 'dur'; } })();
+  function hhmm(d) { return p2(d.getHours()) + ':' + p2(d.getMinutes()); }
+  function lerHorario() {
+    var dia = $('u-dia').value || diaKey(new Date()), a = $('u-ini').value, b = $('u-fim').value;
+    if (!a || !b) return null;
+    var p = dia.split('-'), ha = a.split(':'), hb = b.split(':');
+    var ini = new Date(+p[0], +p[1] - 1, +p[2], +ha[0], +ha[1]), fim = new Date(+p[0], +p[1] - 1, +p[2], +hb[0], +hb[1]);
+    var virou = false, ontem = false;
+    if (fim <= ini) { fim.setDate(fim.getDate() + 1); virou = true; }
+    var futuro = function (d) { return d - Date.now() > 5 * 60000; };
+    if (futuro(fim)) {
+      // só recua um dia se o INÍCIO ainda não chegou (ex.: de manhã, lançar 19:00→23:00 ou 22:00→06:00);
+      // se já começou e o fim é mais tarde, é um fim no futuro mesmo
+      if (!futuro(ini)) return { erro: 'O fim do uso está no futuro.' };
+      ini.setDate(ini.getDate() - 1); fim.setDate(fim.getDate() - 1); ontem = true;
+      if (futuro(fim)) return { erro: 'O fim do uso está no futuro.' };
+    }
+    return { min: Math.round((fim - ini) / 60000), ini: ini, fim: fim, virou: virou, ontem: ontem };
+  }
+  function aplicarModoUso(m) {
+    usoModo = m; try { localStorage.setItem('ve_uso_modo', m); } catch (e) {}
+    $('u-bloco-hor').hidden = m !== 'hor'; $('u-bloco-dur').hidden = m === 'hor';
+    // a Qtd. fica sempre visível: no modo horário ela vai para a linha de início/fim
+    var q = $('u-campo-qtd'); if (m === 'hor') $('u-hor-l2').appendChild(q); else $('u-bloco-dur').querySelector('.linha').appendChild(q);
+    document.querySelectorAll('#u-modo .chip').forEach(function (c) { var on = c.dataset.modo === m; c.classList.toggle('on', on); c.setAttribute('aria-checked', on); });
+    if (m === 'hor') { if (!$('u-dia').value) $('u-dia').value = diaKey(new Date()); if (!$('u-fim').value) $('u-fim').value = hhmm(new Date()); }
+    atualizaPotencias();
+  }
+  $('u-modo').onclick = function (e) { var c = e.target.closest('.chip'); if (c) aplicarModoUso(c.dataset.modo); };
+  ['u-ini', 'u-fim', 'u-dia'].forEach(function (id) { $(id).addEventListener('input', previewUso); });
   function marcarChipDur() {
     var t = lerDuracao();
     document.querySelectorAll('#u-chips .chip').forEach(function (c) { c.classList.toggle('on', Number(c.dataset.min) === t); });
@@ -217,11 +255,18 @@
     vermelha1: { emoji: '🔴', curto: 'VERM. P1', cor: 'var(--vermelho)' },
     vermelha2: { emoji: '🔴🔴', curto: 'VERM. P2', cor: 'var(--vermelho)' }
   };
-  /* Referência Light — residencial — nov/2026 (valores informados pelo usuário).
-   * As razões entre faixas batem com ICMS do RJ embutido (isento até 50 kWh, ~18%, ~24%). */
+  /* Referência Light — residencial — Rio (nov/2026).
+   * calculo 'tributos' (padrão desde a v2.11): tarifa base SEM impostos (TE+TUSD) + bandeira,
+   *   com PIS, COFINS e ICMS "por dentro" (÷ (1 − soma das alíquotas)) + COSIP fixa.
+   *   ICMS-RJ residencial: até 50 kWh isento, 51–300 18%, acima de 300 24% — a faixa atingida
+   *   vale para a conta inteira. Base 0,91516 = 1,00844 (faixa isenta da tabela antiga) sem 9,25% de PIS/COFINS.
+   * calculo 'embutido': faixas com impostos já incluídos (modelo até a v2.10). */
   function tarifaPadrao() {
     return {
-      distribuidora: 'Light', modo: 'progressivo',
+      distribuidora: 'Light', calculo: 'tributos', modo: 'progressivo',
+      tarifaBase: 0.91516, pis: 0.0165, cofins: 0.076,
+      icmsFaixas: [{ ate: 50, aliq: 0 }, { ate: 300, aliq: 0.18 }, { ate: null, aliq: 0.24 }],
+      cosip: { ativa: true, isentoAte: 120, valor: 45 },
       faixas: [{ ate: 50, tarifa: 1.00844 }, { ate: 300, tarifa: 1.22980 }, { ate: null, tarifa: 1.32689 }],
       bandeira: 'verde',
       bandeiras: {
@@ -235,8 +280,13 @@
   /* Detalhamento da conta para um consumo MENSAL. Cada linha é arredondada a centavos,
    * como na fatura. modo 'progressivo': cada faixa cobra só a sua parte;
    * modo 'faixa_unica': a tarifa da faixa atingida vale para todo o consumo. */
+  function aliqIcms(k, cfg) {
+    var f = (cfg.icmsFaixas || []).find(function (x) { return x.ate == null || k <= x.ate; });
+    return f ? f.aliq : 0;
+  }
   function detalharCusto(kwhTotal, cfg, bandeira) {
     cfg = cfg || D.tarifaCfg; bandeira = bandeira || cfg.bandeira;
+    if (cfg.calculo === 'tributos') return detalharTributos(kwhTotal, cfg, bandeira);
     var k = Math.max(0, Number(kwhTotal) || 0), linhas = [], ini = 0;
     if (cfg.modo === 'faixa_unica') {
       var f = cfg.faixas.find(function (x) { return x.ate == null || k <= x.ate; }) || cfg.faixas[cfg.faixas.length - 1];
@@ -254,7 +304,42 @@
     var vb = cent(k * b.acrescimo);
     return { kwh: k, linhas: linhas, base: cent(base), bandeira: { chave: bandeira, label: b.label, acrescimo: b.acrescimo, valor: vb }, total: cent(base + vb) };
   }
+  /* Conta do mês no modelo com tributos ("por dentro", como na fatura):
+   *   líquido = kWh × (tarifa base + bandeira)
+   *   bruto   = líquido ÷ (1 − PIS − COFINS − ICMS da faixa)     ← ex.: R$ 100 com 18% → R$ 121,95
+   *   tributos = bruto × alíquota (cada linha arredondada a centavos)
+   *   total   = líquido + tributos + COSIP (fixa, se passar da isenção) */
+  function detalharTributos(kwhTotal, cfg, bandeira) {
+    var k = Math.max(0, Number(kwhTotal) || 0), b = cfg.bandeiras[bandeira] || { label: bandeira, acrescimo: 0 };
+    var energia = cent(k * cfg.tarifaBase), vb = cent(k * b.acrescimo), liquido = energia + vb;
+    var icms = aliqIcms(k, cfg), div = 1 - cfg.pis - cfg.cofins - icms;
+    var bruto = div > 0 ? liquido / div : liquido;
+    var tributos = [
+      { rotulo: 'PIS ' + nf(cfg.pis * 100, 2) + '%', valor: cent(bruto * cfg.pis) },
+      { rotulo: 'COFINS ' + nf(cfg.cofins * 100, 2) + '%', valor: cent(bruto * cfg.cofins) },
+      { rotulo: 'ICMS ' + nf(icms * 100, 0) + '%' + (icms ? '' : ' (isento)'), valor: cent(bruto * icms) }
+    ];
+    var vTrib = tributos.reduce(function (s2, x) { return s2 + x.valor; }, 0);
+    var c = cfg.cosip || {}, vCosip = c.ativa && k > c.isentoAte ? cent(c.valor) : 0;
+    return { kwh: k, calculo: 'tributos', aliqIcms: icms,
+      linhas: [{ rotulo: 'Energia (TE+TUSD)', kwh: k, tarifa: cfg.tarifaBase, valor: energia }],
+      bandeira: { chave: bandeira, label: b.label, acrescimo: b.acrescimo, valor: vb },
+      liquido: cent(liquido), tributos: tributos, cosip: vCosip, cosipIsento: !!c.ativa && k <= c.isentoAte,
+      semCosip: cent(liquido + vTrib), total: cent(liquido + vTrib + vCosip) };
+  }
   function calcularCusto(kwhTotal, cfg, bandeira) { return detalharCusto(kwhTotal, cfg, bandeira).total; }
+  /* Avisos de "degrau": a faixa atingida muda a conta inteira (ICMS) ou cria a COSIP. */
+  function alertasFaixa(k, cfg) {
+    cfg = cfg || D.tarifaCfg; if (cfg.calculo !== 'tributos' || !(k > 0)) return [];
+    var out = [], prox = function (lim) { return lim != null && k <= lim && k > lim * 0.88; };
+    (cfg.icmsFaixas || []).forEach(function (f, i) {
+      var nx = cfg.icmsFaixas[i + 1];
+      if (nx && prox(f.ate) && nx.aliq > f.aliq) out.push('Faltam ' + nf(f.ate - k, 0) + ' kWh para passar de ' + f.ate + ' kWh: o ICMS iria de ' + nf(f.aliq * 100, 0) + '% para ' + nf(nx.aliq * 100, 0) + '% sobre a conta inteira (+' + brl(calcularCusto(f.ate + 1, cfg) - calcularCusto(f.ate, cfg)) + ' por 1 kWh a mais).');
+    });
+    var c = cfg.cosip || {};
+    if (c.ativa && prox(c.isentoAte)) out.push('Faltam ' + nf(c.isentoAte - k, 0) + ' kWh para perder a isenção da COSIP (+' + brl(c.valor) + ' no mês).');
+    return out;
+  }
 
   /* Tarifa por faixa só faz sentido sobre o total do MÊS. Para itens isolados (um uso,
    * um dia, um intervalo) usamos a tarifa média efetiva do mês projetado — assim a soma
@@ -264,8 +349,13 @@
     var R = calcular(), c = D.tarifaCfg;
     var ref = R.porDia !== null && R.porDia > 0 ? R.porDia * 30 : null;
     TAR.ref = ref;
-    TAR.efetiva = ref ? calcularCusto(ref) / ref
-      : c.faixas[1].tarifa + ((c.bandeiras[c.bandeira] || {}).acrescimo || 0);
+    var acr = (c.bandeiras[c.bandeira] || {}).acrescimo || 0;
+    if (c.calculo === 'tributos') {
+      // a COSIP é taxa fixa do mês: fica fora do custo por kWh de cada uso/dia/intervalo
+      TAR.efetiva = ref ? detalharCusto(ref).semCosip / ref : (c.tarifaBase + acr) / (1 - c.pis - c.cofins - aliqIcms(150, c));
+    } else {
+      TAR.efetiva = ref ? calcularCusto(ref) / ref : c.faixas[1].tarifa + acr;
+    }
     renderBadge();
   }
   var custo = function (k) { return k * TAR.efetiva; };
@@ -404,7 +494,7 @@
     var tot = UH.reduce(function (s2, u) { return s2 + kwhUso(u); }, 0);
     $('u-hoje').innerHTML = UH.length ? UH.map(function (u) {
       var k = kwhUso(u);
-      return '<li><span class="h">' + hora(u.ts) + '</span><span class="m">' + u.icone + ' ' + esc(u.nome) +
+      return '<li><span class="h">' + (u.inicio ? hora(u.inicio) + '<br>' : '') + hora(u.ts) + '</span><span class="m">' + u.icone + ' ' + esc(u.nome) +
         '<small>' + esc(potTxt(u)) + ' · ' + fmtDur(u.minutos) + ' · ' + kwh(k) + ' · ' + brl(custo(k)) + '</small></span>' +
         '<button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir uso">✕</button></li>';
     }).join('') : '<li class="vazio">Nenhum uso registrado hoje.</li>';
@@ -714,17 +804,24 @@
     var a = aparelho($('u-ap').value); if (!a) return null;
     if (ehLamp(a)) {
       var ls = lerLamps(), tw = ls ? ls.reduce(function (s, l) { return s + l.qtd * l.w; }, 0) : NaN;
-      return { a: a, p: { rotulo: ls ? lampTxt(ls) : '', watts: tw }, m: lerDuracao(), q: 1, lampadas: ls };
+      return comHorario({ a: a, p: { rotulo: ls ? lampTxt(ls) : '', watts: tw }, m: lerDuracao(), q: 1, lampadas: ls });
     }
     var p = a.potencias[Number($('u-pot').value) || 0] || a.potencias[0];
     var q = numero($('u-qtd').value);
-    return { a: a, p: p, m: lerDuracao(), q: $('u-qtd').value.trim() === '' ? 1 : q };
+    return comHorario({ a: a, p: p, m: lerDuracao(), q: $('u-qtd').value.trim() === '' ? 1 : q });
+  }
+  function comHorario(f) {
+    if (usoModo !== 'hor') return f;
+    var h = lerHorario(); f.hor = h; f.m = h && !h.erro ? h.min : NaN;
+    return f;
   }
   function previewUso() {
     var f = usoDoForm();
+    if (f && f.hor && f.hor.erro) { $('u-prev').innerHTML = '<span class="neg">' + f.hor.erro + '</span>'; return; }
     var extra = f && f.lampadas && f.lampadas.length ? '<span class="num">' + esc(f.p.rotulo) + ' = ' + nf(f.p.watts, 0) + ' W</span><br>' : '';
     if (f && f.lampadas === null) { $('u-prev').innerHTML = '<span class="neg">Confira quantidade (inteiro) e potência (W) das lâmpadas.</span>'; return; }
-    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '<span class="num">' + fmtDur(f.m) + ' → ≈ ' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(custo(kwhDe(f.p.watts, f.m, f.q))) + '</span>' : '';
+    var faixaH = f && f.hor ? (f.hor.ontem ? 'ontem ' : '') + hhmm(f.hor.ini) + ' → ' + (f.hor.virou ? (f.hor.ontem ? 'hoje ' : 'dia seguinte ') : '') + hhmm(f.hor.fim) + ' = ' : '';
+    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '<span class="num">' + faixaH + fmtDur(f.m) + ' → ≈ ' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(custo(kwhDe(f.p.watts, f.m, f.q))) + '</span>' : '';
   }
 
   /* ↻ Repetir último uso: o último REGISTRADO (ordem de inclusão, não de horário —
@@ -745,6 +842,7 @@
     var novo = Object.assign({}, u, { id: novoId(), ts: new Date().toISOString(),
       medidorId: (a && a.medidorId) || u.medidorId || '' });
     if (u.lampadas) novo.lampadas = u.lampadas.map(function (l) { return { qtd: l.qtd, w: l.w }; });
+    if (u.inicio) novo.inicio = new Date(Date.now() - u.minutos * 60000).toISOString();
     D.usos.push(novo); salvar(); render();
     toast('REPETIDO: ' + u.nome.toUpperCase() + ' ✓', 'DESFAZER', function () {
       D.usos = D.usos.filter(function (x) { return x.id !== novo.id; }); salvar(); render(); toast('DESFEITO');
@@ -755,7 +853,7 @@
   function linhaUso(u, semExcluir) {
     var k = kwhUso(u);
     return '<li><span class="ic">' + u.icone + '</span><span class="info"><b>' + esc(u.nome) + '</b><small><span class="num">' + esc(potTxt(u)) + '<br>' + fmtDur(u.minutos) +
-      ' · ' + kwh(k) + ' · ' + brl(custo(k)) + '</span><br>' + dt(u.ts) + '</small></span>' +
+      ' · ' + kwh(k) + ' · ' + brl(custo(k)) + '</span><br>' + (u.inicio ? dt(u.inicio) + ' → ' + hora(u.ts) : dt(u.ts)) + '</small></span>' +
       (semExcluir === true ? '' : '<button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir">✕</button>') + '</li>';
   }
 
@@ -765,6 +863,7 @@
     var c = D.tarifaCfg, ref = mes !== null && mes > 0 ? mes : null;
     if (!ref) return '<p class="vazio">Registre leituras cobrindo pelo menos meio dia para simular a conta do mês.</p>';
     var det = detalharCusto(ref);
+    if (det.calculo === 'tributos') return htmlContaTributos(det, '<p class="dim" style="font-size:12px">Projeção de <span class="num">' + kwh(ref) + '</span> em 30 dias · ' + esc(c.distribuidora) + '</p>');
     return '<p class="dim" style="font-size:12px">Projeção de <span class="num">' + kwh(ref) + '</span> em 30 dias · ' + esc(c.distribuidora) +
         ' · cálculo ' + (c.modo === 'faixa_unica' ? 'por faixa única' : 'progressivo') + '</p>' +
       '<table class="tab" style="margin-top:6px">' + det.linhas.map(function (l) {
@@ -773,6 +872,20 @@
       '<tr><td>' + (BAND_UI[det.bandeira.chave] || {}).emoji + ' Bandeira ' + esc(det.bandeira.label) + ' <span class="dim num">' + nf(det.kwh, 1) + ' × ' + nf(det.bandeira.acrescimo, 5) + '</span></td><td class="n">' + brl(det.bandeira.valor) + '</td></tr>' +
       '<tr><td style="color:var(--amarelo)">Total estimado</td><td class="n" style="color:var(--amarelo)">' + brl(det.total) + '</td></tr></table>' +
       '<p class="dim num" style="font-size:12px;margin-top:6px">Tarifa média efetiva: ' + rs5(det.total / det.kwh) + '/kWh — usada no custo de cada uso, dia e intervalo.</p>';
+  }
+
+  function htmlContaTributos(det, cab) {
+    var tr = function (a, b, cls) { return '<tr' + (cls ? ' class="' + cls + '"' : '') + '><td>' + a + '</td><td class="n">' + b + '</td></tr>'; };
+    var h = (cab || '') + '<table class="tab" style="margin-top:6px">' +
+      tr('Energia (TE+TUSD) <span class="dim num">' + nf(det.kwh, 1) + ' × ' + nf(det.linhas[0].tarifa, 5) + '</span>', brl(det.linhas[0].valor)) +
+      tr((BAND_UI[det.bandeira.chave] || {}).emoji + ' Bandeira ' + esc(det.bandeira.label) + (det.bandeira.acrescimo ? ' <span class="dim num">× ' + nf(det.bandeira.acrescimo, 5) + '</span>' : ''), brl(det.bandeira.valor)) +
+      tr('Subtotal sem tributos', brl(det.liquido), 'sim-sub') +
+      det.tributos.map(function (x) { return tr(x.rotulo, brl(x.valor)); }).join('') +
+      tr('Iluminação pública (COSIP)' + (det.cosipIsento ? ' <span class="dim">isento</span>' : ''), brl(det.cosip)) +
+      '<tr><td style="color:var(--amarelo)">Total estimado</td><td class="n" style="color:var(--amarelo)">' + brl(det.total) + '</td></tr></table>' +
+      '<p class="dim num" style="font-size:12px;margin-top:6px">Custo por kWh (sem COSIP): ' + rs5(det.kwh ? det.semCosip / det.kwh : 0) + ' — usado em cada uso, dia e intervalo.</p>';
+    alertasFaixa(det.kwh).forEach(function (a) { h += '<div class="faixa-alerta">⚠ ' + a + '</div>'; });
+    return h;
   }
 
   function renderRelatorio(filtro) {
@@ -904,7 +1017,7 @@
       '<h2 style="margin-top:18px">📋 USOS (' + U.length + ')</h2>' + (U.length ? '<div class="rolagem"><table class="tabela larga"><thead><tr><th>DATA/HORA</th><th>APARELHO</th><th>POTÊNCIA</th><th class="n">TEMPO</th><th class="n">KWH</th><th class="n">CUSTO</th><th></th></tr></thead><tbody>' +
         U.map(function (u) {
           var k = kwhUso(u);
-          return '<tr><td class="num">' + dt(u.ts) + '</td><td>' + u.icone + ' ' + esc(u.nome) + '</td><td>' + esc(potTxt(u)) + '</td><td class="n">' + fmtDur(u.minutos) +
+          return '<tr><td class="num">' + dt(u.ts) + (u.inicio ? '<br><span class="dim">desde ' + hora(u.inicio) + '</span>' : '') + '</td><td>' + u.icone + ' ' + esc(u.nome) + '</td><td>' + esc(potTxt(u)) + '</td><td class="n">' + fmtDur(u.minutos) +
             '</td><td class="n">' + nf(k, 3) + '</td><td class="n">' + brl(custo(k)) + '</td><td class="n"><button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir uso">✕</button></td></tr>';
         }).join('') + '</tbody></table></div>' : '<p class="vazio">Nenhum uso.</p>') +
       '<div class="total-box"><span>Total dos usos no período</span><b>' + kwh(tot) + ' · ' + brl(custo(tot)) + '</b></div>';
@@ -1194,16 +1307,20 @@
     e.preventDefault();
     var f = usoDoForm();
     if (!f) return toast('CADASTRE UM APARELHO');
-    if (!(f.m > 0)) { $('u-h').focus(); return toast('INFORME O TEMPO DE USO (HORAS E/OU MINUTOS)'); }
+    if (f.hor && f.hor.erro) return toast(f.hor.erro.toUpperCase());
+    if (!(f.m > 0)) { (usoModo === 'hor' ? $('u-ini') : $('u-h')).focus(); return toast(usoModo === 'hor' ? 'INFORME O INÍCIO E O FIM' : 'INFORME O TEMPO DE USO (HORAS E/OU MINUTOS)'); }
     if (f.m > 1440 * 31) return toast('TEMPO INVÁLIDO (MÁXIMO 31 DIAS)');
     if (!(f.q >= 1 && f.q <= 500 && f.q === Math.floor(f.q))) return toast('QUANTIDADE INVÁLIDA');
     if (f.lampadas === null) return toast('CONFIRA AS LÂMPADAS');
     if (f.lampadas && !f.lampadas.length) return toast('INFORME AS LÂMPADAS');
     // guarda nome/potência/ícone no registro: excluir o aparelho não apaga o histórico
-    D.usos.push({ id: novoId(), ts: lerTs($('u-ts')), aparelhoId: f.a.id, nome: f.a.nome, icone: f.a.icone,
+    var novoUso = { id: novoId(), ts: f.hor ? f.hor.fim.toISOString() : lerTs($('u-ts')), aparelhoId: f.a.id, nome: f.a.nome, icone: f.a.icone,
       watts: f.p.watts, potRotulo: f.lampadas ? f.p.rotulo : f.a.potencias.length > 1 ? f.p.rotulo : '', minutos: f.m, qtd: f.q,
-      lampadas: f.lampadas || undefined, medidorId: f.a.medidorId || '' });
-    salvar(); $('u-h').value = ''; $('u-m').value = ''; marcarChipDur(); $('u-qtd').value = '1'; $('u-ts').value = ''; $('u-lamps').dataset.ap = '';
+      lampadas: f.lampadas || undefined, medidorId: f.a.medidorId || '' };
+    if (f.hor) novoUso.inicio = f.hor.ini.toISOString();
+    D.usos.push(novoUso);
+    salvar(); $('u-h').value = ''; $('u-m').value = ''; marcarChipDur(); $('u-qtd').value = '1';
+    $('u-ini').value = ''; $('u-fim').value = hhmm(new Date()); $('u-dia').value = diaKey(new Date()); $('u-ts').value = ''; $('u-lamps').dataset.ap = '';
     render(); toast('USO REGISTRADO ✓');
   };
 
@@ -1279,12 +1396,20 @@
     $('t-band').innerHTML = htmlBandeiras('cfg', c.bandeira, c);
     $('t-faixas').innerHTML = htmlFaixas('tf', c); ligaFaixas('tf');
     $('t-modo').value = c.modo || 'progressivo';
+    $('t-calc').value = c.calculo || 'tributos'; mostrarSecaoCalc();
+    var pct = function (v) { return nf(v * 100, 2).replace(/,00$/, ''); }, f = c.icmsFaixas;
+    $('tt-base').value = nf(c.tarifaBase, 5); $('tt-pis').value = pct(c.pis); $('tt-cof').value = pct(c.cofins);
+    $('tt-i1a').value = f[0].ate; $('tt-i1').value = pct(f[0].aliq); $('tt-i2a').value = f[1].ate; $('tt-i2').value = pct(f[1].aliq);
+    $('tt-i3a').value = 'Acima de ' + f[1].ate; $('tt-i3').value = pct(f[2].aliq);
+    $('tt-cosip-on').checked = !!c.cosip.ativa; $('tt-cosip-lim').value = c.cosip.isentoAte; $('tt-cosip-v').value = nf(c.cosip.valor, 2);
+    $('tt-cosip-campos').hidden = !c.cosip.ativa;
+    if (!$('cal-band').options.length) $('cal-band').innerHTML = BANDS.map(function (b) { return '<option value="' + b + '">' + BAND_UI[b].emoji + ' ' + c.bandeiras[b].label + '</option>'; }).join('');
     $('t-acr').innerHTML = BANDS.map(function (b) {
       return '<div class="acr"><label for="tb-' + b + '">' + BAND_UI[b].emoji + ' ' + esc(c.bandeiras[b].label) + '</label><input id="tb-' + b + '" class="num" inputmode="decimal" value="' + nf(c.bandeiras[b].acrescimo, 5) + '"></div>';
     }).join('');
     $('t-atual').textContent = dataBr(c.ultimaAtualizacao || hoje());
-    $('t-efetiva').innerHTML = 'Tarifa média efetiva agora: <span class="num">' + rs5(TAR.efetiva) + '/kWh</span>' +
-      (TAR.ref ? ' (para ~' + nf(TAR.ref, 0) + ' kWh/mês projetados)' : ' (faixa 2 + bandeira, até haver leituras suficientes)');
+    $('t-efetiva').innerHTML = 'Custo médio por kWh agora: <span class="num">' + rs5(TAR.efetiva) + '/kWh</span>' + (c.calculo === 'tributos' ? ', com tributos e sem COSIP' : '') +
+      (TAR.ref ? ' (para ~' + nf(TAR.ref, 0) + ' kWh/mês projetados)' : ' (estimativa até haver leituras suficientes)');
   }
   function salvarTarifa(msg) { D.tarifaCfg.ultimaAtualizacao = hoje(); salvar(); render(); toast(msg); }
   document.body.addEventListener('click', function (e) {
@@ -1294,6 +1419,51 @@
       if (b.dataset.grupo === 'pop') fecharPopupBandeira();
       D.tarifaCfg.bandeira = b.dataset.band; salvarTarifa('BANDEIRA ' + BAND_UI[b.dataset.band].curto + ' ✓');
     }
+  });
+  function mostrarSecaoCalc() { var t = $('t-calc').value === 'tributos'; $('t-sec-trib').hidden = !t; $('t-sec-emb').hidden = t; }
+  $('t-calc').onchange = function () {
+    mostrarSecaoCalc(); D.tarifaCfg.calculo = $('t-calc').value;
+    salvarTarifa(D.tarifaCfg.calculo === 'tributos' ? 'CÁLCULO COM TRIBUTOS ✓' : 'CÁLCULO COM FAIXAS ✓');
+  };
+  $('tt-cosip-on').onchange = function () { $('tt-cosip-campos').hidden = !this.checked; };
+  $('tt-i2a').addEventListener('input', function () { var v = numero(this.value); $('tt-i3a').value = 'Acima de ' + (v > 0 ? nf(v, 0) : '…'); });
+  function lerPct(id) { var v = numero($(id).value); return v >= 0 && v < 60 ? Math.round(v * 10000) / 1000000 : NaN; }
+  $('t-salvar-trib').onclick = function () {
+    var base = numero($('tt-base').value), pis = lerPct('tt-pis'), cof = lerPct('tt-cof');
+    var a1 = numero($('tt-i1a').value), a2 = numero($('tt-i2a').value), i1 = lerPct('tt-i1'), i2 = lerPct('tt-i2'), i3 = lerPct('tt-i3');
+    var lim = numero($('tt-cosip-lim').value), val = numero($('tt-cosip-v').value);
+    if (!(base > 0 && base < 10)) return toast('TARIFA BASE INVÁLIDA');
+    if ([pis, cof, i1, i2, i3].some(isNaN)) return toast('ALÍQUOTA INVÁLIDA (0 A 60%)');
+    if (!(a1 >= 1 && a2 > a1)) return toast('FAIXAS DO ICMS INVÁLIDAS');
+    if (pis + cof + Math.max(i1, i2, i3) >= 0.9) return toast('SOMA DAS ALÍQUOTAS ALTA DEMAIS');
+    if ($('tt-cosip-on').checked && !(lim >= 0 && val >= 0 && val < 2000)) return toast('COSIP INVÁLIDA');
+    var c = D.tarifaCfg;
+    c.tarifaBase = base; c.pis = pis; c.cofins = cof;
+    c.icmsFaixas = [{ ate: a1, aliq: i1 }, { ate: a2, aliq: i2 }, { ate: null, aliq: i3 }];
+    c.cosip = { ativa: $('tt-cosip-on').checked, isentoAte: lim >= 0 ? lim : c.cosip.isentoAte, valor: val >= 0 ? val : c.cosip.valor };
+    c.distribuidora = $('t-dist').value;
+    if (document.activeElement) document.activeElement.blur();
+    salvarTarifa('TRIBUTOS SALVOS ✓');
+  };
+  /* Calibração: a partir de uma conta real, resolve a tarifa base.
+   *   (total − COSIP) × (1 − PIS − COFINS − ICMS da faixa) = kWh × (base + bandeira) */
+  var calBase = null;
+  $('cal-calc').onclick = function () {
+    var k = numero($('cal-kwh').value), tot = numero($('cal-total').value), cos = $('cal-cosip').value.trim() ? numero($('cal-cosip').value) : 0;
+    var c = D.tarifaCfg, acr = (c.bandeiras[$('cal-band').value] || {}).acrescimo || 0;
+    if (!(k > 0) || !(tot > 0) || !(cos >= 0) || cos >= tot) { $('cal-res').innerHTML = '<div class="alerta">Preencha consumo e total (e a COSIP, se houver).</div>'; return; }
+    var icms = aliqIcms(k, c), liquido = (tot - cos) * (1 - c.pis - c.cofins - icms);
+    calBase = liquido / k - acr;
+    if (!(calBase > 0.1 && calBase < 5)) { calBase = null; $('cal-res').innerHTML = '<div class="alerta">O resultado não faz sentido (R$ ' + nf(liquido / k - acr, 5) + '/kWh). Confira os valores ou se a conta tem multa/crédito.</div>'; return; }
+    $('cal-res').innerHTML = '<div class="cal-res">Tarifa base calculada: <b class="num" style="color:var(--ciano);font-weight:400">' + rs5(calBase) + '/kWh</b><br><span class="dim">Atual: ' + rs5(c.tarifaBase) +
+      ' · ICMS usado: ' + nf(icms * 100, 0) + '% · PIS+COFINS: ' + nf((c.pis + c.cofins) * 100, 2) + '%. Se a conta mostra PIS/COFINS diferentes, ajuste-os acima antes de calibrar.</span>' +
+      '<button type="button" class="btn full" id="cal-aplicar">APLICAR ESTA TARIFA</button></div>';
+  };
+  $('cal-res').addEventListener('click', function (e) {
+    if (e.target.id !== 'cal-aplicar' || !calBase) return;
+    D.tarifaCfg.tarifaBase = Math.round(calBase * 100000) / 100000; D.tarifaCfg.calculo = 'tributos';
+    $('cal-res').innerHTML = ''; calBase = null;
+    salvarTarifa('TARIFA BASE CALIBRADA ✓');
   });
   $('t-salvar-faixas').onclick = function () {
     var f = lerFaixas('tf'); if (typeof f === 'string') return toast(f.toUpperCase());
@@ -1313,7 +1483,7 @@
     salvarTarifa('BANDEIRAS SALVAS ✓');
   };
   $('t-restaurar').onclick = function () {
-    if (!confirm('Restaurar faixas e acréscimos para a referência Light (nov/2026)? A bandeira atual é mantida.')) return;
+    if (!confirm('Restaurar tarifa base, tributos do Rio, COSIP e acréscimos para a referência Light (nov/2026)? A bandeira atual é mantida.')) return;
     var p = tarifaPadrao(); p.bandeira = D.tarifaCfg.bandeira; D.tarifaCfg = p; salvarTarifa('VALORES LIGHT RESTAURADOS ✓');
   };
   // badge da bandeira: mini-seletor no próprio topo (mudar a bandeira recalcula todas as telas via render())
@@ -1489,11 +1659,12 @@
     $('o-dist-txt').textContent = d || '—';
     $('o-tar-light').hidden = !light; $('o-tar-edit').hidden = light;
     if (light) {
-      var f = tarifaPadrao().faixas;
+      var p = tarifaPadrao(), f = p.icmsFaixas;
       $('o-tar-tab').innerHTML =
-        '<tr><td>Faixa 1 · até ' + f[0].ate + ' kWh</td><td class="n">' + rs5(f[0].tarifa) + '</td></tr>' +
-        '<tr><td>Faixa 2 · ' + (f[0].ate + 1) + ' a ' + f[1].ate + ' kWh</td><td class="n">' + rs5(f[1].tarifa) + '</td></tr>' +
-        '<tr><td>Faixa 3 · acima de ' + f[1].ate + ' kWh</td><td class="n">' + rs5(f[2].tarifa) + '</td></tr>' +
+        '<tr><td>Tarifa base (sem impostos)</td><td class="n">' + rs5(p.tarifaBase) + '/kWh</td></tr>' +
+        '<tr><td>ICMS · até ' + f[0].ate + ' / até ' + f[1].ate + ' / acima</td><td class="n">' + [f[0].aliq, f[1].aliq, f[2].aliq].map(function (a) { return nf(a * 100, 0) + '%'; }).join(' / ') + '</td></tr>' +
+        '<tr><td>PIS / COFINS</td><td class="n">' + nf(p.pis * 100, 2) + '% / ' + nf(p.cofins * 100, 2) + '%</td></tr>' +
+        '<tr><td>COSIP Rio · isento até ' + p.cosip.isentoAte + ' kWh</td><td class="n">' + brl(p.cosip.valor) + '/mês</td></tr>' +
         '<tr><td class="dim">Bandeira inicial</td><td class="n dim">🟢 Verde</td></tr>';
     } else if (!$('of-a1')) {
       var base = D.tarifaCfg && D.tarifaCfg.distribuidora === d ? D.tarifaCfg : tarifaPadrao();
@@ -1511,8 +1682,11 @@
     D.aparelhos = onb.aps.filter(function (x) { return x.on; }).map(function (x) { return x.ap; });
     D.seeded = true;
     var cfgN = tarifaPadrao();
-    if (dist === 'Light') { if (D.tarifaCfg && D.tarifaCfg.distribuidora === 'Light') cfgN.bandeira = D.tarifaCfg.bandeira; }
-    else {
+    if (dist === 'Light') {
+      if (D.tarifaCfg && D.tarifaCfg.distribuidora === 'Light') cfgN.bandeira = D.tarifaCfg.bandeira;
+      cfgN.cosip.ativa = $('o-cosip').checked;
+    } else {
+      cfgN.calculo = 'embutido'; cfgN.cosip.ativa = false;   // outras distribuidoras: faixas com impostos informadas na conta
       cfgN.faixas = lerFaixas('of');
       var bsel = document.querySelector('#o-band .band-op.on'); cfgN.bandeira = bsel ? bsel.dataset.band : 'verde';
     }
@@ -1696,6 +1870,7 @@
 
   atualizaTsLeitura();
   aplicarAtalhoPeriodo('30');
+  aplicarModoUso(usoModo);
   if (ADIAR_SEED) {
     $('nuvem-espera').hidden = false;
     var liberar = function () {
@@ -1719,5 +1894,5 @@
   window.__ve = { calcular: calcular, dados: function () { return D; }, calcularCusto: calcularCusto, detalharCusto: detalharCusto,
     tarifaPadrao: tarifaPadrao, tar: function () { return TAR; },
     mesclar: mesclar, shards: shards, montar: montar, sync: function () { return { estado: estadoSync, erro: erroSync, fb: FB, st: ST }; },
-    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura, consumoPeriodo: consumoPeriodo }; // para testes
+    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura, consumoPeriodo: consumoPeriodo, alertasFaixa: alertasFaixa }; // para testes
 })();

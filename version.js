@@ -1,8 +1,16 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.10.0';
+self.VE_VERSAO = '2.11.0';
 self.VE_NOVIDADES = [
+  { v: '2.11.0', itens: [
+    'Uso por horário: informe início e fim (ex.: 19:00 → 23:00); atravessa a meia-noite',
+    'Conta com tributos: tarifa sem impostos + PIS, COFINS e ICMS "por dentro" + COSIP',
+    'ICMS do Rio por faixa (isento até 50 kWh, 18% até 300, 24% acima) sobre a conta inteira',
+    'COSIP da cidade do Rio: isenção até 120 kWh, valor configurável',
+    'Calibrar pela minha conta: descobre a tarifa base a partir de uma conta real',
+    'Avisos quando a projeção está perto de mudar de faixa'
+  ] },
   { v: '2.10.0', itens: [
     'Registro de uso com Horas e Minutos (aceita 1,5 h ou 90 min)',
     'Atalhos de um toque: 15 min, 30 min, 1 h, 2 h, 4 h, 8 h',
