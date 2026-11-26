@@ -173,6 +173,24 @@
     var m = medidor(id); return m ? m.nome : 'Medidor removido';
   }
   function aparelho(id) { return D.aparelhos.find(function (a) { return a.id === id; }); }
+  /* Duração: o registro guarda MINUTOS (como sempre); a tela usa horas + minutos. */
+  function fmtDur(min) {
+    min = Math.round(min);
+    if (min < 60) return min + ' min';
+    var h = Math.floor(min / 60), r = min - h * 60;
+    return h + ' h' + (r ? ' ' + r + ' min' : '');
+  }
+  function lerDuracao() {
+    var th = $('u-h').value.trim(), tm = $('u-m').value.trim();
+    if (!th && !tm) return NaN;
+    var h = th ? numero(th) : 0, m = tm ? numero(tm) : 0;
+    if (!(h >= 0) || !(m >= 0)) return NaN;
+    return Math.round((h * 60 + m) * 10) / 10;   // "1,5" h = 90 min; "90" min também vale
+  }
+  function marcarChipDur() {
+    var t = lerDuracao();
+    document.querySelectorAll('#u-chips .chip').forEach(function (c) { c.classList.toggle('on', Number(c.dataset.min) === t); });
+  }
   function potTxt(u) { return (u.potRotulo ? u.potRotulo + ' · ' : '') + nf(u.watts, 0) + ' W' + (u.qtd > 1 ? ' × ' + nf(u.qtd, 0) : ''); }
   var ehLamp = function (a) { return !!(a && a.tipo === 'lampadas'); };
   function lampTxt(ls) { return ls.map(function (l) { return nf(l.qtd, 0) + '×' + nf(l.w, 0) + ' W'; }).join(' + '); }
@@ -387,7 +405,7 @@
     $('u-hoje').innerHTML = UH.length ? UH.map(function (u) {
       var k = kwhUso(u);
       return '<li><span class="h">' + hora(u.ts) + '</span><span class="m">' + u.icone + ' ' + esc(u.nome) +
-        '<small>' + esc(potTxt(u)) + ' · ' + nf(u.minutos, 0) + ' min · ' + kwh(k) + ' · ' + brl(custo(k)) + '</small></span>' +
+        '<small>' + esc(potTxt(u)) + ' · ' + fmtDur(u.minutos) + ' · ' + kwh(k) + ' · ' + brl(custo(k)) + '</small></span>' +
         '<button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir uso">✕</button></li>';
     }).join('') : '<li class="vazio">Nenhum uso registrado hoje.</li>';
     $('u-hoje-total').innerHTML = '<span>Total estimado hoje</span><b>' + kwh(tot) + ' → ' + brl(custo(tot)) + '</b>';
@@ -696,17 +714,17 @@
     var a = aparelho($('u-ap').value); if (!a) return null;
     if (ehLamp(a)) {
       var ls = lerLamps(), tw = ls ? ls.reduce(function (s, l) { return s + l.qtd * l.w; }, 0) : NaN;
-      return { a: a, p: { rotulo: ls ? lampTxt(ls) : '', watts: tw }, m: numero($('u-min').value), q: 1, lampadas: ls };
+      return { a: a, p: { rotulo: ls ? lampTxt(ls) : '', watts: tw }, m: lerDuracao(), q: 1, lampadas: ls };
     }
     var p = a.potencias[Number($('u-pot').value) || 0] || a.potencias[0];
     var q = numero($('u-qtd').value);
-    return { a: a, p: p, m: numero($('u-min').value), q: $('u-qtd').value.trim() === '' ? 1 : q };
+    return { a: a, p: p, m: lerDuracao(), q: $('u-qtd').value.trim() === '' ? 1 : q };
   }
   function previewUso() {
     var f = usoDoForm();
     var extra = f && f.lampadas && f.lampadas.length ? '<span class="num">' + esc(f.p.rotulo) + ' = ' + nf(f.p.watts, 0) + ' W</span><br>' : '';
     if (f && f.lampadas === null) { $('u-prev').innerHTML = '<span class="neg">Confira quantidade (inteiro) e potência (W) das lâmpadas.</span>'; return; }
-    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '≈ <span class="num">' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(custo(kwhDe(f.p.watts, f.m, f.q))) + '</span>' : '';
+    $('u-prev').innerHTML = f && f.m > 0 && f.q > 0 && f.p.watts > 0 ? extra + '<span class="num">' + fmtDur(f.m) + ' → ≈ ' + kwh(kwhDe(f.p.watts, f.m, f.q)) + ' · ' + brl(custo(kwhDe(f.p.watts, f.m, f.q))) + '</span>' : '';
   }
 
   /* ↻ Repetir último uso: o último REGISTRADO (ordem de inclusão, não de horário —
@@ -717,7 +735,7 @@
     $('u-repetir-card').hidden = !u;
     if (!u) return;
     var k = kwhUso(u);
-    $('u-repetir-desc').innerHTML = u.icone + ' ' + esc(u.nome) + '<br><span class="num">' + esc(potTxt(u)) + ' · ' + nf(u.minutos, 0) + ' min · ' +
+    $('u-repetir-desc').innerHTML = u.icone + ' ' + esc(u.nome) + '<br><span class="num">' + esc(potTxt(u)) + ' · ' + fmtDur(u.minutos) + ' · ' +
       kwh(k) + ' · ' + brl(custo(k)) + '</span>' +
       (aparelho(u.aparelhoId) ? '' : '<br><span class="neg">Aparelho excluído — repete com os dados gravados.</span>');
   }
@@ -736,8 +754,8 @@
 
   function linhaUso(u, semExcluir) {
     var k = kwhUso(u);
-    return '<li><span class="ic">' + u.icone + '</span><span class="info"><b>' + esc(u.nome) + '</b><small><span class="num">' + esc(potTxt(u)) + '<br>' + nf(u.minutos, 0) +
-      ' min · ' + kwh(k) + ' · ' + brl(custo(k)) + '</span><br>' + dt(u.ts) + '</small></span>' +
+    return '<li><span class="ic">' + u.icone + '</span><span class="info"><b>' + esc(u.nome) + '</b><small><span class="num">' + esc(potTxt(u)) + '<br>' + fmtDur(u.minutos) +
+      ' · ' + kwh(k) + ' · ' + brl(custo(k)) + '</span><br>' + dt(u.ts) + '</small></span>' +
       (semExcluir === true ? '' : '<button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir">✕</button>') + '</li>';
   }
 
@@ -883,10 +901,10 @@
     $('p-res').innerHTML = '<h2 id="p-leituras">⚡ LEITURAS (' + L.length + ')</h2>' + (L.length ? '<div class="rolagem"><table class="tabela"><thead><tr><th>DATA/HORA</th><th>MEDIDOR</th><th class="n">KWH</th><th></th></tr></thead><tbody>' +
         L.map(function (l) { return '<tr><td class="num">' + dt(l.ts) + badgesLeitura(l) + obsLeitura(l) + '</td><td>' + esc(nomeMed(l.medidorId)) + '</td><td class="n">' + nf(l.kwh, 1) + '</td><td class="n">' + acoesLeitura(l) + '</td></tr>'; }).join('') +
         '</tbody></table></div>' : '<p class="vazio">Nenhuma leitura.</p>') +
-      '<h2 style="margin-top:18px">📋 USOS (' + U.length + ')</h2>' + (U.length ? '<div class="rolagem"><table class="tabela larga"><thead><tr><th>DATA/HORA</th><th>APARELHO</th><th>POTÊNCIA</th><th class="n">MIN</th><th class="n">KWH</th><th class="n">CUSTO</th><th></th></tr></thead><tbody>' +
+      '<h2 style="margin-top:18px">📋 USOS (' + U.length + ')</h2>' + (U.length ? '<div class="rolagem"><table class="tabela larga"><thead><tr><th>DATA/HORA</th><th>APARELHO</th><th>POTÊNCIA</th><th class="n">TEMPO</th><th class="n">KWH</th><th class="n">CUSTO</th><th></th></tr></thead><tbody>' +
         U.map(function (u) {
           var k = kwhUso(u);
-          return '<tr><td class="num">' + dt(u.ts) + '</td><td>' + u.icone + ' ' + esc(u.nome) + '</td><td>' + esc(potTxt(u)) + '</td><td class="n">' + nf(u.minutos, 0) +
+          return '<tr><td class="num">' + dt(u.ts) + '</td><td>' + u.icone + ' ' + esc(u.nome) + '</td><td>' + esc(potTxt(u)) + '</td><td class="n">' + fmtDur(u.minutos) +
             '</td><td class="n">' + nf(k, 3) + '</td><td class="n">' + brl(custo(k)) + '</td><td class="n"><button type="button" class="x" data-del-u="' + u.id + '" aria-label="Excluir uso">✕</button></td></tr>';
         }).join('') + '</tbody></table></div>' : '<p class="vazio">Nenhum uso.</p>') +
       '<div class="total-box"><span>Total dos usos no período</span><b>' + kwh(tot) + ' · ' + brl(custo(tot)) + '</b></div>';
@@ -1164,12 +1182,20 @@
   };
 
   $('u-ap').onchange = atualizaPotencias;
-  $('u-pot').onchange = previewUso; $('u-min').oninput = previewUso; $('u-qtd').oninput = previewUso;
+  $('u-pot').onchange = previewUso; $('u-qtd').oninput = previewUso;
+  ['u-h', 'u-m'].forEach(function (id) { $(id).oninput = function () { marcarChipDur(); previewUso(); }; });
+  $('u-chips').onclick = function (e) {
+    var c = e.target.closest('.chip'); if (!c) return;
+    var t = Number(c.dataset.min), h = Math.floor(t / 60), m = t - h * 60;
+    $('u-h').value = h ? h : ''; $('u-m').value = m ? m : '';
+    marcarChipDur(); previewUso();
+  };
   $('f-uso').onsubmit = function (e) {
     e.preventDefault();
     var f = usoDoForm();
     if (!f) return toast('CADASTRE UM APARELHO');
-    if (!(f.m > 0 && f.m <= 1440 * 31)) return toast('MINUTOS INVÁLIDOS');
+    if (!(f.m > 0)) { $('u-h').focus(); return toast('INFORME O TEMPO DE USO (HORAS E/OU MINUTOS)'); }
+    if (f.m > 1440 * 31) return toast('TEMPO INVÁLIDO (MÁXIMO 31 DIAS)');
     if (!(f.q >= 1 && f.q <= 500 && f.q === Math.floor(f.q))) return toast('QUANTIDADE INVÁLIDA');
     if (f.lampadas === null) return toast('CONFIRA AS LÂMPADAS');
     if (f.lampadas && !f.lampadas.length) return toast('INFORME AS LÂMPADAS');
@@ -1177,7 +1203,7 @@
     D.usos.push({ id: novoId(), ts: lerTs($('u-ts')), aparelhoId: f.a.id, nome: f.a.nome, icone: f.a.icone,
       watts: f.p.watts, potRotulo: f.lampadas ? f.p.rotulo : f.a.potencias.length > 1 ? f.p.rotulo : '', minutos: f.m, qtd: f.q,
       lampadas: f.lampadas || undefined, medidorId: f.a.medidorId || '' });
-    salvar(); $('u-min').value = ''; $('u-qtd').value = '1'; $('u-ts').value = ''; $('u-lamps').dataset.ap = '';
+    salvar(); $('u-h').value = ''; $('u-m').value = ''; marcarChipDur(); $('u-qtd').value = '1'; $('u-ts').value = ''; $('u-lamps').dataset.ap = '';
     render(); toast('USO REGISTRADO ✓');
   };
 

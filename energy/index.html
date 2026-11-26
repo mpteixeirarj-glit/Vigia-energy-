@@ -35,6 +35,12 @@
   .hl2{display:flex; justify-content:space-between; align-items:baseline; margin-top:6px; gap:8px}
   .hl2 .ver{font-family:var(--pixel); font-size:8px; color:var(--dim)}
   .relogio{font-family:var(--mono); font-size:12px; color:var(--dim); white-space:pre; font-variant-numeric:tabular-nums}
+  /* linha 2 do topo não pode passar da largura da tela (senão o celular reduz o zoom
+     e os toques erram o alvo): itens fixos não encolhem, o relógio encolhe/corta */
+  .hl2 > *{flex:none}
+  .hl2 .relogio{flex:1 1 auto; min-width:0; overflow:hidden; text-align:right}
+  @media (max-width:400px){ .hl2{gap:6px} .relogio{white-space:nowrap; font-size:11px} }
+  @media (max-width:340px){ .hl2 .ver{display:none} }
   .menu{position:absolute; right:16px; top:100%; margin-top:4px; background:var(--card); border:2px solid var(--ciano);
     min-width:220px; box-shadow:4px 4px 0 #05060a; display:none}
   .menu.on{display:block}
@@ -105,7 +111,8 @@
   .cal-top{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px}
   .cal-top h2{margin:0; text-align:center; flex:1}
   .cal-top .btn{padding:8px 12px; font-size:12px}
-  .cal{display:grid; grid-template-columns:repeat(7,1fr); gap:4px}
+  .cal{display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px}
+  @media (max-width:340px){ .cal{gap:2px} .cal .dia{min-height:36px; font-size:12px} .cal .m{min-width:8px; font-size:7px} }
   .cal .dow{font-family:var(--pixel); font-size:7px; color:var(--dim); text-align:center; padding:4px 0}
   .cal .dia{aspect-ratio:1; min-height:42px; background:var(--bg); border:2px solid var(--borda); color:var(--txt); cursor:pointer;
     display:flex; flex-direction:column; align-items:center; justify-content:space-between; padding:3px 1px; font-family:var(--mono); font-size:13px}
@@ -290,6 +297,10 @@
   header{position:sticky}
   .popup-bandeira{position:absolute; left:16px; right:16px; top:100%; margin-top:4px; z-index:20; max-width:420px;
     background:var(--card); border:2px solid var(--ciano); padding:12px; box-shadow:4px 4px 0 #05060a}
+  /* tempo de uso: horas + minutos + atalhos */
+  label.sub-l{margin-top:2px; font-size:11px}
+  .chips.dur{display:grid; grid-template-columns:repeat(6,1fr); gap:4px; margin-top:8px}
+  .chips.dur .chip{padding:8px 2px; font-size:7px}
   .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
     font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:60; display:none; max-width:90vw; line-height:1.6}
   .so-print{display:none}
@@ -487,9 +498,19 @@
         <button type="button" class="btn mini" id="u-lamp-add" style="margin-top:8px">+ OUTRO TIPO DE LÂMPADA</button>
         <div class="dim" id="u-lamp-dica" style="font-size:12px;margin-top:6px"></div>
       </div>
-      <div class="linha">
-        <div><label for="u-min">Minutos de uso</label><input id="u-min" class="num" inputmode="decimal" placeholder="ex: 15" required></div>
-        <div class="estreito" id="u-campo-qtd"><label for="u-qtd">Qtd.</label><input id="u-qtd" class="num" inputmode="numeric" value="1"></div>
+      <label>Tempo de uso</label>
+      <div class="linha dur">
+        <div><label for="u-h" class="sub-l">Horas</label><input id="u-h" class="num" inputmode="decimal" placeholder="0" autocomplete="off"></div>
+        <div><label for="u-m" class="sub-l">Minutos</label><input id="u-m" class="num" inputmode="numeric" placeholder="0" autocomplete="off"></div>
+        <div class="estreito" id="u-campo-qtd"><label for="u-qtd" class="sub-l">Qtd.</label><input id="u-qtd" class="num" inputmode="numeric" value="1"></div>
+      </div>
+      <div class="chips dur" id="u-chips" role="group" aria-label="Atalhos de tempo">
+        <button type="button" class="chip" data-min="15">15 MIN</button>
+        <button type="button" class="chip" data-min="30">30 MIN</button>
+        <button type="button" class="chip" data-min="60">1 H</button>
+        <button type="button" class="chip" data-min="120">2 H</button>
+        <button type="button" class="chip" data-min="240">4 H</button>
+        <button type="button" class="chip" data-min="480">8 H</button>
       </div>
       <details><summary>Ajustar horário do fim do uso (padrão: agora)</summary>
         <input id="u-ts" type="datetime-local" style="margin-top:6px">

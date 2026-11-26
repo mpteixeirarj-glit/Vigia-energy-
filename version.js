@@ -1,8 +1,14 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.9.0';
+self.VE_VERSAO = '2.10.0';
 self.VE_NOVIDADES = [
+  { v: '2.10.0', itens: [
+    'Registro de uso com Horas e Minutos (aceita 1,5 h ou 90 min)',
+    'Atalhos de um toque: 15 min, 30 min, 1 h, 2 h, 4 h, 8 h',
+    'Tempos exibidos como "4 h" ou "1 h 30 min" no histórico e na pesquisa',
+    'Correção: em celulares de 320–360 px a tela ficava mais larga que o aparelho (zoom e toques fora do alvo)'
+  ] },
   { v: '2.9.0', itens: [
     'Aba Medidor: Resumo do Período no topo (7/15/30 dias, mês atual ou datas livres)',
     'Consumo do período rateado entre leituras: não depende de ler exatamente nas datas',
