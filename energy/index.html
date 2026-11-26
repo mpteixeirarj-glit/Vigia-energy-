@@ -307,6 +307,14 @@
   .cal-res{margin-top:10px; padding:10px; border:2px solid var(--ciano); font-size:13px}
   .chips.modo-uso .chip{padding:7px 8px; font-size:7px}
   .sim-sub td{color:var(--dim); font-size:12px}
+  details.det-imp{margin-top:8px; border-top:2px dashed var(--borda); padding-top:6px}
+  details.det-imp summary{color:var(--dim); font-size:13px; cursor:pointer}
+  details.det-imp summary{list-style:none} details.det-imp summary::-webkit-details-marker{display:none}
+  details.det-imp[open] summary{opacity:.85}
+  details.det-imp[open] summary{color:var(--ciano)}
+  .pct-imp{text-align:right; color:var(--vermelho); font-size:12px; margin-top:4px; font-family:var(--mono)}
+  .tabela.cosip td{padding:4px 6px 4px 0} .tabela.cosip input{padding:6px; font-size:15px; text-align:right}
+  .tabela.cosip tr.atual td{color:var(--ciano)} .tabela.cosip tr.atual input{border-color:var(--ciano)}
   .faixa-alerta{margin-top:8px; padding:8px 10px; border-left:3px solid var(--amarelo); color:var(--amarelo); font-size:12px}
   .toast{position:fixed; left:50%; bottom:90px; transform:translateX(-50%); background:var(--ciano); color:var(--bg);
     font-family:var(--pixel); font-size:9px; padding:10px 14px; z-index:60; display:none; max-width:90vw; line-height:1.6}
@@ -681,7 +689,7 @@
       </div>
       <p class="dim" id="p-filtro" style="font-size:12px;margin-top:10px"></p>
     </form>
-    <p class="nota-est">⚠️ Estimativa com as tarifas e tributos de Config → Tarifa. A conta real varia com o PIS/COFINS do mês, multas, juros e créditos. Calibre com uma conta real para chegar perto.</p>
+    <p class="nota-est">⚠️ Estimativa. ICMS e PIS/COFINS calculados "por dentro" sobre a tarifa sem impostos; COSIP pela faixa do Rio. Não inclui ajustes de faturamento da distribuidora (multas, juros, créditos, PIS/COFINS do mês). Calibre com uma conta real em Config → Tarifa.</p>
     <div class="card">
       <h2>📊 RESUMO DO PERÍODO</h2>
       <div class="kpis" id="r-kpis"></div>
@@ -740,26 +748,22 @@
         <label for="tt-base">TE + TUSD — R$ por kWh</label>
         <input id="tt-base" class="num" inputmode="decimal">
         <p class="dim" style="font-size:12px;margin-top:4px">Na conta aparece como "Consumo" ou "Energia" antes dos tributos. Não sabe? Use "Calibrar pela minha conta" abaixo.</p>
-        <h3>PIS / COFINS (%)</h3>
+        <h3>PIS / COFINS (%) — EFETIVAS DA CONTA</h3>
         <div class="linha">
           <div><label for="tt-pis">PIS</label><input id="tt-pis" class="num" inputmode="decimal"></div>
           <div><label for="tt-cof">COFINS</label><input id="tt-cof" class="num" inputmode="decimal"></div>
         </div>
-        <p class="dim" style="font-size:12px;margin-top:4px">A distribuidora muda essas alíquotas todo mês; o valor do mês vem impresso na conta.</p>
+        <p class="dim" style="font-size:12px;margin-top:4px">A distribuidora muda essas alíquotas todo mês (vêm impressas na conta). Padrão: média das NF3e Light/RJ de 2026 — PIS 0,97% + COFINS 4,45% = 5,42%.</p>
         <h3>ICMS POR CONSUMO DO MÊS</h3>
-        <div class="rolagem"><table class="tabela faixas"><thead><tr><th>FAIXA</th><th>ATÉ (KWH)</th><th>ALÍQUOTA %</th></tr></thead><tbody>
-          <tr><td>1</td><td><input id="tt-i1a" class="num" inputmode="numeric" aria-label="ICMS faixa 1 até kWh"></td><td><input id="tt-i1" class="num" inputmode="decimal" aria-label="ICMS faixa 1 %"></td></tr>
-          <tr><td>2</td><td><input id="tt-i2a" class="num" inputmode="numeric" aria-label="ICMS faixa 2 até kWh"></td><td><input id="tt-i2" class="num" inputmode="decimal" aria-label="ICMS faixa 2 %"></td></tr>
-          <tr><td>3</td><td><input id="tt-i3a" class="num" disabled aria-label="ICMS faixa 3"></td><td><input id="tt-i3" class="num" inputmode="decimal" aria-label="ICMS faixa 3 %"></td></tr>
-        </tbody></table></div>
+        <div class="rolagem"><table class="tabela faixas"><thead><tr><th>FAIXA</th><th>ATÉ (KWH)</th><th>ALÍQUOTA %</th></tr></thead><tbody id="tt-icms"></tbody></table></div>
         <p class="dim" style="font-size:12px;margin-top:4px">A alíquota da faixa atingida vale para a conta inteira, calculada "por dentro".</p>
         <h3>ILUMINAÇÃO PÚBLICA (COSIP)</h3>
         <label class="toggle"><input type="checkbox" id="tt-cosip-on"> Cobrar COSIP (cidade do Rio de Janeiro)</label>
-        <div class="linha" id="tt-cosip-campos">
-          <div><label for="tt-cosip-lim">Isento até (kWh)</label><input id="tt-cosip-lim" class="num" inputmode="numeric"></div>
-          <div><label for="tt-cosip-v">Valor acima (R$/mês)</label><input id="tt-cosip-v" class="num" inputmode="decimal"></div>
+        <div id="tt-cosip-campos">
+          <p class="num" id="tt-cosip-atual" style="font-size:13px;color:var(--ciano);margin:6px 0"></p>
+          <div class="rolagem"><table class="tabela faixas cosip"><thead><tr><th>CONSUMO DO MÊS</th><th class="n">R$/MÊS</th></tr></thead><tbody id="tt-cosip"></tbody></table></div>
+          <p class="dim" style="font-size:12px;margin-top:4px">Tabela da Lei 9.049/2025 (Rio). A prefeitura usa a média de 12 meses e reajusta com a ANEEL; o app usa o consumo do mês. Se a sua conta mostrar outro valor, ajuste a linha da sua faixa.</p>
         </div>
-        <p class="dim" style="font-size:12px;margin-top:4px">O valor depende da sua faixa de consumo e da bandeira: copie o da sua última conta.</p>
         <button type="button" class="btn full" id="t-salvar-trib">💾 SALVAR TRIBUTOS</button>
         <details class="calibra"><summary>🧮 Calibrar pela minha conta</summary>
           <p class="dim" style="font-size:12px;margin-top:8px">Com uma conta de luz real, o app descobre a tarifa base. Use uma conta sem multa, juros ou crédito.</p>
@@ -796,9 +800,9 @@
       <div class="rodape-tar">
         Referência Light — residencial — Rio de Janeiro (nov/2026)<br>
         Tarifa base estimada: R$ 0,91516/kWh (calibre com sua conta)<br>
-        ICMS-RJ: até 50 kWh isento · 51–300 kWh 18% · acima de 300 kWh 24% (conta inteira)<br>
-        PIS 1,65% · COFINS 7,6% (alíquotas cheias; na conta costumam ser menores)<br>
-        COSIP Rio (Lei 9.049/2025): isento até 120 kWh · acima ≈ R$ 45/mês<br>
+        ICMS-RJ (NF3e 2026): até 50 kWh isento · até 220 kWh 18% · até 300 kWh 20% · acima 24% (conta inteira)<br>
+        PIS 0,97% · COFINS 4,45% (média efetiva das NF3e de 2026)<br>
+        COSIP Rio (Lei 9.049/2025): isento até 120 kWh · R$ 9,39 até 200 · R$ 17,40 até 300 · R$ 30 até 400 · R$ 50 até 500 · R$ 60,56 até 700 · R$ 75 até 1.000 · R$ 90 acima<br>
         Bandeiras (sem impostos): Amarela +R$ 0,01885 · Verm. P1 +R$ 0,04463 · Verm. P2 +R$ 0,07877 por kWh<br>
         Última atualização registrada: <span id="t-atual"></span>
       </div>

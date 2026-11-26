@@ -44,6 +44,10 @@
   // coleções sincronizadas (declarada aqui: o boot já usa, antes do bloco da nuvem)
   var COLS = ['medidores', 'aparelhos', 'leituras', 'usos'];
   // tabela Light de referência até a v2.10 (declarada aqui: a migração roda no boot, antes do bloco da tarifa)
+  // impostos Light/RJ (NF3e 2026) — declarados aqui porque a migração do boot usa tarifaPadrao()
+  var ICMS_RJ = [{ ate: 50, aliq: 0 }, { ate: 220, aliq: 0.18 }, { ate: 300, aliq: 0.20 }, { ate: null, aliq: 0.24 }];
+  var COSIP_RIO = [{ ate: 120, valor: 0 }, { ate: 200, valor: 9.39 }, { ate: 300, valor: 17.40 }, { ate: 400, valor: 30.00 },
+    { ate: 500, valor: 50.00 }, { ate: 700, valor: 60.56 }, { ate: 1000, valor: 75.00 }, { ate: null, valor: 90.00 }];
   var LIGHT_FAIXAS_ANTIGAS = JSON.stringify([{ ate: 50, tarifa: 1.00844 }, { ate: 300, tarifa: 1.22980 }, { ate: null, tarifa: 1.32689 }]);
   function vazio() { return { versao: 2, seeded: false, onboarding: false, medidores: [], leituras: [], aparelhos: [], usos: [], apagados: {}, cfgMod: 0 }; }
   function seeds() {
@@ -104,7 +108,15 @@
     if (!d.tarifaCfg.calculo) {   // v2.11: tabela Light de referência → tributos; faixas personalizadas → mantém o modelo antigo
       d.tarifaCfg.calculo = JSON.stringify((d.tarifaCfg.faixas || []).map(function (f) { return { ate: f.ate, tarifa: f.tarifa }; })) === LIGHT_FAIXAS_ANTIGAS ? 'tributos' : 'embutido';
     }
+    var impV2 = d.tarifaCfg.impostosV >= 2;
     d.tarifaCfg = Object.assign(tarifaPadrao(), d.tarifaCfg);
+    if (!impV2) {   // v2.12: padrões das NF3e reais (PIS/COFINS efetivos, ICMS 20% em 221–300, tabela da COSIP)
+      var tc = d.tarifaCfg;
+      if (tc.pis === 0.0165 && tc.cofins === 0.076) { tc.pis = 0.0097; tc.cofins = 0.0445; }
+      if (JSON.stringify(tc.icmsFaixas) === JSON.stringify([{ ate: 50, aliq: 0 }, { ate: 300, aliq: 0.18 }, { ate: null, aliq: 0.24 }])) tc.icmsFaixas = tarifaPadrao().icmsFaixas;
+      if (!tc.cosip || !Array.isArray(tc.cosip.faixas)) tc.cosip = { ativa: !tc.cosip || tc.cosip.ativa !== false, faixas: tarifaPadrao().cosip.faixas };
+      tc.impostosV = 2;
+    }
     delete d.tarifa;
     // contas anteriores à v2.2 que já têm medidor não passam pelo onboarding
     if (!tinhaFlag) d.onboarding = d.medidores.length > 0;
@@ -261,12 +273,23 @@
    *   ICMS-RJ residencial: até 50 kWh isento, 51–300 18%, acima de 300 24% — a faixa atingida
    *   vale para a conta inteira. Base 0,91516 = 1,00844 (faixa isenta da tabela antiga) sem 9,25% de PIS/COFINS.
    * calculo 'embutido': faixas com impostos já incluídos (modelo até a v2.10). */
+  /* Impostos Light/RJ — médias de NF3e de 2026 informadas pelo usuário (v2.12):
+   *   ICMS: até 220 kWh 18% · até 300 kWh 20% · acima 24% (inclui FECP), sobre a conta inteira;
+   *         a isenção até 50 kWh (Lei estadual, fontes públicas) foi mantida como 1ª faixa.
+   *   PIS 0,97% + COFINS 4,45% = 5,42% efetivos (não as alíquotas cheias de 9,25%).
+   *   COSIP Rio (Lei 9.049/2025): valor fixo por faixa de consumo mensal. */
+  // ICMS_RJ e COSIP_RIO: valores no topo do arquivo (o boot já precisa deles)
+  function valorCosip(k, c) {
+    if (!c || !c.ativa || !Array.isArray(c.faixas)) return 0;
+    var f = c.faixas.find(function (x) { return x.ate == null || k <= x.ate; });
+    return f ? f.valor : 0;
+  }
   function tarifaPadrao() {
     return {
       distribuidora: 'Light', calculo: 'tributos', modo: 'progressivo',
-      tarifaBase: 0.91516, pis: 0.0165, cofins: 0.076,
-      icmsFaixas: [{ ate: 50, aliq: 0 }, { ate: 300, aliq: 0.18 }, { ate: null, aliq: 0.24 }],
-      cosip: { ativa: true, isentoAte: 120, valor: 45 },
+      tarifaBase: 0.91516, pis: 0.0097, cofins: 0.0445, impostosV: 2,
+      icmsFaixas: ICMS_RJ.map(function (f) { return { ate: f.ate, aliq: f.aliq }; }),
+      cosip: { ativa: true, faixas: COSIP_RIO.map(function (f) { return { ate: f.ate, valor: f.valor }; }) },
       faixas: [{ ate: 50, tarifa: 1.00844 }, { ate: 300, tarifa: 1.22980 }, { ate: null, tarifa: 1.32689 }],
       bandeira: 'verde',
       bandeiras: {
@@ -320,12 +343,23 @@
       { rotulo: 'ICMS ' + nf(icms * 100, 0) + '%' + (icms ? '' : ' (isento)'), valor: cent(bruto * icms) }
     ];
     var vTrib = tributos.reduce(function (s2, x) { return s2 + x.valor; }, 0);
-    var c = cfg.cosip || {}, vCosip = c.ativa && k > c.isentoAte ? cent(c.valor) : 0;
+    var c = cfg.cosip || {}, vCosip = cent(valorCosip(k, c));
     return { kwh: k, calculo: 'tributos', aliqIcms: icms,
       linhas: [{ rotulo: 'Energia (TE+TUSD)', kwh: k, tarifa: cfg.tarifaBase, valor: energia }],
       bandeira: { chave: bandeira, label: b.label, acrescimo: b.acrescimo, valor: vb },
-      liquido: cent(liquido), tributos: tributos, cosip: vCosip, cosipIsento: !!c.ativa && k <= c.isentoAte,
-      semCosip: cent(liquido + vTrib), total: cent(liquido + vTrib + vCosip) };
+      liquido: cent(liquido), tributos: tributos, cosip: vCosip, cosipIsento: !!c.ativa && vCosip === 0, cosipAtiva: !!c.ativa,
+      vTributos: cent(vTrib), semCosip: cent(liquido + vTrib), total: cent(liquido + vTrib + vCosip) };
+  }
+  /* Interface pedida no patch v2.12: o total já sai de detalharCusto (que inclui tributos e COSIP);
+   * aqui só se reorganiza para exibição. Não soma nada por fora (evita contar COSIP/ICMS duas vezes). */
+  function calcularContaCompleta(kwhTotal) {
+    var d = detalharCusto(kwhTotal);
+    if (d.calculo !== 'tributos') return { kwhTotal: d.kwh, totalFinal: d.total, embutido: true };
+    var t = function (i) { return d.tributos[i].valor; }, imp = d.vTributos + d.cosip;
+    return { kwhTotal: d.kwh, energiaPura: d.liquido, subtotalEnergia: d.liquido,
+      icms: { aliquota: d.aliqIcms, valor: t(2) }, pisCofins: { aliquota: D.tarifaCfg.pis + D.tarifaCfg.cofins, valor: cent(t(0) + t(1)) },
+      cosip: { valor: d.cosip }, impostoTotal: cent(imp), totalFinal: d.total,
+      percentualImpostos: d.total > 0 ? (imp / d.total * 100).toFixed(1) : '0.0' };
   }
   function calcularCusto(kwhTotal, cfg, bandeira) { return detalharCusto(kwhTotal, cfg, bandeira).total; }
   /* Avisos de "degrau": a faixa atingida muda a conta inteira (ICMS) ou cria a COSIP. */
@@ -337,7 +371,10 @@
       if (nx && prox(f.ate) && nx.aliq > f.aliq) out.push('Faltam ' + nf(f.ate - k, 0) + ' kWh para passar de ' + f.ate + ' kWh: o ICMS iria de ' + nf(f.aliq * 100, 0) + '% para ' + nf(nx.aliq * 100, 0) + '% sobre a conta inteira (+' + brl(calcularCusto(f.ate + 1, cfg) - calcularCusto(f.ate, cfg)) + ' por 1 kWh a mais).');
     });
     var c = cfg.cosip || {};
-    if (c.ativa && prox(c.isentoAte)) out.push('Faltam ' + nf(c.isentoAte - k, 0) + ' kWh para perder a isenção da COSIP (+' + brl(c.valor) + ' no mês).');
+    if (c.ativa && Array.isArray(c.faixas)) c.faixas.forEach(function (f, i) {
+      var nx = c.faixas[i + 1];
+      if (nx && prox(f.ate) && nx.valor > f.valor) out.push('Faltam ' + nf(f.ate - k, 0) + ' kWh para a COSIP ir de ' + brl(f.valor) + ' para ' + brl(nx.valor) + ' no mês.');
+    });
     return out;
   }
 
@@ -568,10 +605,11 @@
     if (proj !== null) h += ln('Projeção p/ o período todo', kwh(proj));
     h += ln('Custo estimado', brl(custo(r.kwh)), 'custo');
     h += ln('<span class="dim">Equivalente a 30 dias</span>', '<span class="dim">' + kwh(r.media * 30) + ' · ' + brl(calcularCusto(r.media * 30)) + '</span>');
+    if (!compacto && D.tarifaCfg.calculo === 'tributos' && r.media > 0) h += '<details class="det-imp"><summary>▶ Conta de 30 dias com impostos</summary>' + htmlContaTributos(detalharCusto(r.media * 30)) + '</details>';
     h += '</div>';
     if (r.negativos) h += '<div class="alerta">⚠ ' + r.negativos + ' intervalo(s) com consumo negativo (troca de medidor ou leitura errada) ficaram de fora.</div>';
     if (!compacto) h += '<p class="rp-nota">≈ = valor estimado proporcionalmente entre as leituras vizinhas. Custo pela tarifa média efetiva (' + rs5(TAR.efetiva) + '/kWh, ' + obterNomeBandeira() +
-      '); "Equivalente a 30 dias" aplica as faixas sobre um mês nesse ritmo. Confira se as tarifas configuradas já incluem ICMS, PIS e COFINS.</p>';
+      '); já inclui ICMS e PIS/COFINS. "Equivalente a 30 dias" monta a conta de um mês nesse ritmo, com a faixa de ICMS e a COSIP desse mês. Estimativa: não inclui ajustes de faturamento da distribuidora.</p>';
     return h;
   }
   function obterNomeBandeira() { var b = D.tarifaCfg.bandeira; return 'Bandeira ' + ((D.tarifaCfg.bandeiras[b] || {}).label || b); }
@@ -654,7 +692,8 @@
           '<tr><td>Consumo' + (m.mult && m.mult !== 1 ? ' (×' + nf(m.mult, 2) + ')' : '') + '</td><td class="n">' + kwh(c.kwh) + '</td></tr>' +
           (neg ? '' : '<tr><td style="color:var(--amarelo)">Custo estimado</td><td class="n" style="color:var(--amarelo)">' + brl(calcularCusto(c.kwh)) + '</td></tr>') +
           (proj !== null ? '<tr><td class="dim">Projeção do ciclo (30 dias)</td><td class="n dim">' + kwh(proj) + ' · ' + brl(calcularCusto(proj)) + '</td></tr>' : '') +
-          '</table>' + (neg ? '<div class="alerta">⚠ Consumo negativo: houve troca de medidor ou leitura errada no meio do ciclo. Corrija a leitura (✏️) ou marque a primeira leitura do medidor novo como início de ciclo.</div>' : '') + '</div>';
+          '</table>' + (!neg && D.tarifaCfg.calculo === 'tributos' && c.kwh > 0 ? '<details class="det-imp"><summary>▶ Ver com impostos</summary>' + htmlContaTributos(detalharCusto(c.kwh)) + '</details>' : '') +
+          (neg ? '<div class="alerta">⚠ Consumo negativo: houve troca de medidor ou leitura errada no meio do ciclo. Corrija a leitura (✏️) ou marque a primeira leitura do medidor novo como início de ciclo.</div>' : '') + '</div>';
       }).join('');
     });
     $('ciclos').innerHTML = html || '<p class="vazio">Nenhuma leitura marcada como início de ciclo ainda.</p>';
@@ -881,9 +920,10 @@
       tr((BAND_UI[det.bandeira.chave] || {}).emoji + ' Bandeira ' + esc(det.bandeira.label) + (det.bandeira.acrescimo ? ' <span class="dim num">× ' + nf(det.bandeira.acrescimo, 5) + '</span>' : ''), brl(det.bandeira.valor)) +
       tr('Subtotal sem tributos', brl(det.liquido), 'sim-sub') +
       det.tributos.map(function (x) { return tr(x.rotulo, brl(x.valor)); }).join('') +
-      tr('Iluminação pública (COSIP)' + (det.cosipIsento ? ' <span class="dim">isento</span>' : ''), brl(det.cosip)) +
+      (det.cosipAtiva ? tr('Iluminação pública (COSIP)' + (det.cosipIsento ? ' <span class="dim">isento</span>' : ''), brl(det.cosip)) : '') +
       '<tr><td style="color:var(--amarelo)">Total estimado</td><td class="n" style="color:var(--amarelo)">' + brl(det.total) + '</td></tr></table>' +
-      '<p class="dim num" style="font-size:12px;margin-top:6px">Custo por kWh (sem COSIP): ' + rs5(det.kwh ? det.semCosip / det.kwh : 0) + ' — usado em cada uso, dia e intervalo.</p>';
+      (det.total > 0 ? '<div class="pct-imp">' + nf((det.vTributos + det.cosip) / det.total * 100, 1) + '% da conta são tributos e COSIP (' + brl(det.vTributos + det.cosip) + ')</div>' : '') +
+      '<p class="dim num" style="font-size:12px;margin-top:6px">Custo por kWh (com tributos, sem COSIP): ' + rs5(det.kwh ? det.semCosip / det.kwh : 0) + ' — usado em cada uso, dia e intervalo.</p>';
     alertasFaixa(det.kwh).forEach(function (a) { h += '<div class="faixa-alerta">⚠ ' + a + '</div>'; });
     return h;
   }
@@ -1399,10 +1439,19 @@
     $('t-calc').value = c.calculo || 'tributos'; mostrarSecaoCalc();
     var pct = function (v) { return nf(v * 100, 2).replace(/,00$/, ''); }, f = c.icmsFaixas;
     $('tt-base').value = nf(c.tarifaBase, 5); $('tt-pis').value = pct(c.pis); $('tt-cof').value = pct(c.cofins);
-    $('tt-i1a').value = f[0].ate; $('tt-i1').value = pct(f[0].aliq); $('tt-i2a').value = f[1].ate; $('tt-i2').value = pct(f[1].aliq);
-    $('tt-i3a').value = 'Acima de ' + f[1].ate; $('tt-i3').value = pct(f[2].aliq);
-    $('tt-cosip-on').checked = !!c.cosip.ativa; $('tt-cosip-lim').value = c.cosip.isentoAte; $('tt-cosip-v').value = nf(c.cosip.valor, 2);
-    $('tt-cosip-campos').hidden = !c.cosip.ativa;
+    $('tt-icms').innerHTML = f.map(function (x, i) {
+      var ant = i ? f[i - 1].ate : 0;
+      return '<tr><td>' + (i + 1) + '</td><td>' + (x.ate == null ? '<input class="num" disabled value="Acima de ' + ant + '">'
+        : '<input class="num" inputmode="numeric" data-icms-ate="' + i + '" value="' + x.ate + '" aria-label="ICMS faixa ' + (i + 1) + ' até kWh">') +
+        '</td><td><input class="num" inputmode="decimal" data-icms-aliq="' + i + '" value="' + pct(x.aliq) + '" aria-label="ICMS faixa ' + (i + 1) + ' %"></td></tr>';
+    }).join('');
+    $('tt-cosip-on').checked = !!c.cosip.ativa; $('tt-cosip-campos').hidden = !c.cosip.ativa;
+    var ref = TAR.ref || 0, fx = c.cosip.faixas || [], atual = fx.findIndex(function (x) { return x.ate == null || ref <= x.ate; });
+    $('tt-cosip').innerHTML = fx.map(function (x, i) {
+      var de = i ? fx[i - 1].ate + 1 : 0, rot = x.ate == null ? 'acima de ' + nf(fx[i - 1].ate, 0) + ' kWh' : nf(de, 0) + ' a ' + nf(x.ate, 0) + ' kWh';
+      return '<tr' + (ref && i === atual ? ' class="atual"' : '') + '><td>' + rot + (ref && i === atual ? ' ◀' : '') + '</td><td class="n"><input class="num" inputmode="decimal" data-cosip-v="' + i + '" value="' + nf(x.valor, 2) + '" aria-label="COSIP ' + rot + '"></td></tr>';
+    }).join('');
+    $('tt-cosip-atual').textContent = ref ? 'Sua faixa (≈ ' + nf(ref, 0) + ' kWh/mês projetados): ' + brl(valorCosip(ref, c.cosip)) + '/mês' : 'Registre leituras para ver a sua faixa.';
     if (!$('cal-band').options.length) $('cal-band').innerHTML = BANDS.map(function (b) { return '<option value="' + b + '">' + BAND_UI[b].emoji + ' ' + c.bandeiras[b].label + '</option>'; }).join('');
     $('t-acr').innerHTML = BANDS.map(function (b) {
       return '<div class="acr"><label for="tb-' + b + '">' + BAND_UI[b].emoji + ' ' + esc(c.bandeiras[b].label) + '</label><input id="tb-' + b + '" class="num" inputmode="decimal" value="' + nf(c.bandeiras[b].acrescimo, 5) + '"></div>';
@@ -1426,21 +1475,30 @@
     salvarTarifa(D.tarifaCfg.calculo === 'tributos' ? 'CÁLCULO COM TRIBUTOS ✓' : 'CÁLCULO COM FAIXAS ✓');
   };
   $('tt-cosip-on').onchange = function () { $('tt-cosip-campos').hidden = !this.checked; };
-  $('tt-i2a').addEventListener('input', function () { var v = numero(this.value); $('tt-i3a').value = 'Acima de ' + (v > 0 ? nf(v, 0) : '…'); });
+  $('tt-icms').addEventListener('input', function (e) {   // "Acima de X" acompanha o limite da penúltima faixa
+    var i = e.target.dataset.icmsAte; if (i == null) return;
+    var prox = $('tt-icms').querySelectorAll('tr')[+i + 1], dis = prox && prox.querySelector('input[disabled]');
+    if (dis) { var v = numero(e.target.value); dis.value = 'Acima de ' + (v > 0 ? nf(v, 0) : '…'); }
+  });
   function lerPct(id) { var v = numero($(id).value); return v >= 0 && v < 60 ? Math.round(v * 10000) / 1000000 : NaN; }
   $('t-salvar-trib').onclick = function () {
     var base = numero($('tt-base').value), pis = lerPct('tt-pis'), cof = lerPct('tt-cof');
-    var a1 = numero($('tt-i1a').value), a2 = numero($('tt-i2a').value), i1 = lerPct('tt-i1'), i2 = lerPct('tt-i2'), i3 = lerPct('tt-i3');
-    var lim = numero($('tt-cosip-lim').value), val = numero($('tt-cosip-v').value);
+    var c = D.tarifaCfg, icms = [], ultimo = 0, maxAliq = 0;
     if (!(base > 0 && base < 10)) return toast('TARIFA BASE INVÁLIDA');
-    if ([pis, cof, i1, i2, i3].some(isNaN)) return toast('ALÍQUOTA INVÁLIDA (0 A 60%)');
-    if (!(a1 >= 1 && a2 > a1)) return toast('FAIXAS DO ICMS INVÁLIDAS');
-    if (pis + cof + Math.max(i1, i2, i3) >= 0.9) return toast('SOMA DAS ALÍQUOTAS ALTA DEMAIS');
-    if ($('tt-cosip-on').checked && !(lim >= 0 && val >= 0 && val < 2000)) return toast('COSIP INVÁLIDA');
-    var c = D.tarifaCfg;
-    c.tarifaBase = base; c.pis = pis; c.cofins = cof;
-    c.icmsFaixas = [{ ate: a1, aliq: i1 }, { ate: a2, aliq: i2 }, { ate: null, aliq: i3 }];
-    c.cosip = { ativa: $('tt-cosip-on').checked, isentoAte: lim >= 0 ? lim : c.cosip.isentoAte, valor: val >= 0 ? val : c.cosip.valor };
+    if (isNaN(pis) || isNaN(cof)) return toast('PIS/COFINS INVÁLIDO (0 A 60%)');
+    for (var i = 0; i < c.icmsFaixas.length; i++) {
+      var ea = document.querySelector('[data-icms-ate="' + i + '"]'), aq = numero(document.querySelector('[data-icms-aliq="' + i + '"]').value);
+      var ate = ea ? numero(ea.value) : null;
+      if (!(aq >= 0 && aq < 60)) return toast('ALÍQUOTA DO ICMS INVÁLIDA (FAIXA ' + (i + 1) + ')');
+      if (ea && !(ate > ultimo && ate === Math.floor(ate))) return toast('LIMITES DO ICMS DEVEM SER CRESCENTES');
+      if (ea) ultimo = ate;
+      icms.push({ ate: ate, aliq: Math.round(aq * 10000) / 1000000 }); maxAliq = Math.max(maxAliq, aq / 100);
+    }
+    if (pis + cof + maxAliq >= 0.9) return toast('SOMA DAS ALÍQUOTAS ALTA DEMAIS');
+    var cos = (c.cosip.faixas || []).map(function (x, j) { return { ate: x.ate, valor: numero(document.querySelector('[data-cosip-v="' + j + '"]').value) }; });
+    if (cos.some(function (x) { return !(x.valor >= 0 && x.valor < 2000); })) return toast('VALOR DA COSIP INVÁLIDO');
+    c.tarifaBase = base; c.pis = pis; c.cofins = cof; c.icmsFaixas = icms;
+    c.cosip = { ativa: $('tt-cosip-on').checked, faixas: cos };
     c.distribuidora = $('t-dist').value;
     if (document.activeElement) document.activeElement.blur();
     salvarTarifa('TRIBUTOS SALVOS ✓');
@@ -1662,9 +1720,9 @@
       var p = tarifaPadrao(), f = p.icmsFaixas;
       $('o-tar-tab').innerHTML =
         '<tr><td>Tarifa base (sem impostos)</td><td class="n">' + rs5(p.tarifaBase) + '/kWh</td></tr>' +
-        '<tr><td>ICMS · até ' + f[0].ate + ' / até ' + f[1].ate + ' / acima</td><td class="n">' + [f[0].aliq, f[1].aliq, f[2].aliq].map(function (a) { return nf(a * 100, 0) + '%'; }).join(' / ') + '</td></tr>' +
+        '<tr><td>ICMS · ' + f.map(function (x) { return x.ate == null ? 'acima' : 'até ' + x.ate; }).join(' / ') + ' kWh</td><td class="n">' + f.map(function (x) { return nf(x.aliq * 100, 0) + '%'; }).join(' / ') + '</td></tr>' +
         '<tr><td>PIS / COFINS</td><td class="n">' + nf(p.pis * 100, 2) + '% / ' + nf(p.cofins * 100, 2) + '%</td></tr>' +
-        '<tr><td>COSIP Rio · isento até ' + p.cosip.isentoAte + ' kWh</td><td class="n">' + brl(p.cosip.valor) + '/mês</td></tr>' +
+        '<tr><td>COSIP Rio · isento até ' + p.cosip.faixas[0].ate + ' kWh, depois por faixa</td><td class="n">' + brl(p.cosip.faixas[1].valor) + ' a ' + brl(p.cosip.faixas[p.cosip.faixas.length - 1].valor) + '</td></tr>' +
         '<tr><td class="dim">Bandeira inicial</td><td class="n dim">🟢 Verde</td></tr>';
     } else if (!$('of-a1')) {
       var base = D.tarifaCfg && D.tarifaCfg.distribuidora === d ? D.tarifaCfg : tarifaPadrao();
@@ -1894,5 +1952,5 @@
   window.__ve = { calcular: calcular, dados: function () { return D; }, calcularCusto: calcularCusto, detalharCusto: detalharCusto,
     tarifaPadrao: tarifaPadrao, tar: function () { return TAR; },
     mesclar: mesclar, shards: shards, montar: montar, sync: function () { return { estado: estadoSync, erro: erroSync, fb: FB, st: ST }; },
-    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura, consumoPeriodo: consumoPeriodo, alertasFaixa: alertasFaixa }; // para testes
+    puxar: puxar, empurrar: empurrar, validarLeitura: validarLeitura, consumoPeriodo: consumoPeriodo, alertasFaixa: alertasFaixa, calcularContaCompleta: calcularContaCompleta, valorCosip: valorCosip }; // para testes
 })();
