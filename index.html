@@ -1,253 +1,31 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0b0d14">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Vigia Energy">
-<link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
-<link rel="preload" href="fonts/vigia-pixel.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="common.css">
-<title>Vigia</title>
-<style>
-  main{max-width:440px; margin:0 auto; padding:32px 16px 48px}
-  .logo{text-align:center; margin:16px 0 28px}
-  .logo .olho{width:96px; height:60px}
-  .logo h1{font-size:28px; color:var(--ciano); margin-top:14px; text-shadow:3px 3px 0 #003b44}
-  .logo p{font-family:var(--pixel); font-size:8px; color:var(--dim); margin-top:10px; line-height:1.8}
-  .alt{text-align:center; margin-top:14px; font-size:13px; color:var(--dim)}
-  .ou{display:flex; align-items:center; gap:10px; margin:14px 0 2px; color:var(--dim); font-size:12px}
-  .ou::before,.ou::after{content:''; flex:1; border-top:2px dashed var(--borda)}
-  .info-msg{color:var(--ciano); font-size:13px; margin-top:4px; min-height:0}
-  .aviso{font-size:12px; color:var(--dim); margin-top:14px; border-left:2px solid var(--amarelo); padding-left:8px}
-  .hub-top{display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:18px}
-  .hub-top .pixel{font-size:10px; color:var(--dim)}
-  .vcard{display:flex; align-items:center; gap:14px; padding:18px 14px; margin-bottom:14px;
-    background:var(--card); border:2px solid var(--borda); color:var(--txt); text-decoration:none;
-    box-shadow:4px 4px 0 #05060a; transition:none}
-  .vcard:hover,.vcard:focus-visible{border-color:var(--cor); outline:none}
-  .vcard:active{transform:translate(2px,2px); box-shadow:2px 2px 0 #05060a}
-  .vcard .ico{font-size:30px; width:52px; height:52px; display:grid; place-items:center;
-    border:2px solid var(--cor); background:var(--bg)}
-  .vcard .t{font-family:var(--pixel); font-size:11px; color:var(--cor); line-height:1.6}
-  .vcard .d{font-size:12px; color:var(--dim); margin-top:4px}
-  .vcard .seta{margin-left:auto; font-family:var(--pixel); color:var(--cor)}
-  /* Financeiro: o logo animado do próprio app (o mesmo vídeo da página de apresentação
-     dele, recortado e reduzido para 27 KB). Toca uma vez e para no escudo. */
-  .vcard .ico-video{overflow:hidden; padding:0}
-  .vcard .ico-video video{width:100%; height:100%; object-fit:cover; display:block}
-  [hidden]{display:none!important}
-</style>
-</head>
-<body>
-<main>
-  <div class="logo">
-    <span class="olho" aria-hidden="true">
-      <svg viewBox="0 0 16 10" shape-rendering="crispEdges"><g class="palpebra">
-        <g fill="#00e5ff">
-          <rect x="5" y="1" width="6" height="1"/><rect x="3" y="2" width="2" height="1"/><rect x="11" y="2" width="2" height="1"/>
-          <rect x="1" y="3" width="2" height="1"/><rect x="13" y="3" width="2" height="1"/>
-          <rect x="0" y="4" width="1" height="2"/><rect x="15" y="4" width="1" height="2"/>
-          <rect x="1" y="6" width="2" height="1"/><rect x="13" y="6" width="2" height="1"/>
-          <rect x="3" y="7" width="2" height="1"/><rect x="11" y="7" width="2" height="1"/><rect x="5" y="8" width="6" height="1"/>
-        </g>
-        <rect x="6" y="3" width="4" height="4" fill="#ffd700"/>
-        <rect x="7" y="4" width="2" height="2" fill="#0b0d14"/>
-        <rect x="6" y="3" width="1" height="1" fill="#ffffff"/>
-      </g></svg>
-    </span>
-    <h1>VIGIA</h1>
-    <p>DE OLHO NO QUE É SEU</p>
-  </div>
-
-  <!-- LOGIN -->
-  <section id="tela-login" hidden>
-    <form class="card" id="f-login" autocomplete="on">
-      <h2 id="titulo-form">ENTRAR</h2>
-      <label for="email">E-mail</label>
-      <input id="email" type="email" autocomplete="username" required>
-      <label for="senha">Senha</label>
-      <input id="senha" type="password" autocomplete="current-password" required minlength="6">
-      <div id="campo-conf" hidden>
-        <label for="senha2">Confirmar senha</label>
-        <input id="senha2" type="password" autocomplete="new-password" minlength="6">
-      </div>
-      <div class="erro" id="erro" role="alert"></div>
-      <div class="info-msg" id="info" role="status"></div>
-      <button class="btn full" type="submit" id="btn-submit">ENTRAR</button>
-      <div class="ou"><span>ou</span></div>
-      <button class="btn full amarelo" type="button" id="btn-google">ENTRAR COM GOOGLE</button>
-      <div class="alt"><span id="alt-txt">Não tem conta?</span>
-        <button class="link" type="button" id="alternar">Criar conta</button>
-        <span id="sep-esq"> · </span><button class="link" type="button" id="esqueci">Esqueci minha senha</button></div>
-      <p class="aviso">Conta do Vigia Energy (e-mail/senha ou Google). Seus dados ficam salvos neste aparelho e sincronizados na nuvem.</p>
-    </form>
-  </section>
-
-  <!-- HUB -->
-  <section id="tela-hub" hidden>
-    <div class="hub-top">
-      <span class="pixel" id="quem"></span>
-      <button class="btn mini perigo" id="sair">SAIR</button>
-    </div>
-    <h2>ESCOLHA SEU VIGIA</h2>
-    <a class="vcard" href="energy/" style="--cor:var(--ciano)">
-      <span class="ico">⚡</span><span><div class="t">VIGIA ENERGY</div><div class="d">Medidor, aparelhos e vilões da conta de luz</div></span><span class="seta">›</span>
-    </a>
-    <a class="vcard" href="https://mpteixeirarj-glit.github.io/vigia/" style="--cor:var(--amarelo)">
-      <span class="ico ico-video"><video id="fin-logo" src="hub/fin-logo.mp4" poster="hub/fin-logo.png" autoplay muted playsinline preload="auto" aria-hidden="true"></video></span><span><div class="t">VIGIA FINANCEIRO</div><div class="d">Requer login próprio</div></span><span class="seta">›</span>
-    </a>
-    <a class="vcard" href="https://mpteixeirarj-glit.github.io/AUTO-VIGIA-/" style="--cor:#ff8a3d">
-      <span class="ico">🚗</span><span><div class="t">VIGIA AUTO</div><div class="d">Manutenção do veículo</div></span><span class="seta">›</span>
-    </a>
-  </section>
-  <p class="pixel" id="versao" style="text-align:center;font-size:8px;color:var(--dim);margin-top:24px"></p>
-</main>
-<script src="version.js"></script>
-<script src="firebase-config.js"></script>
-<script src="auth.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vigia Energy mudou de endereço</title>
+<link rel="canonical" href="https://mpteixeirarj-glit.github.io/energy/">
+<meta http-equiv="refresh" content="2;url=/energy/">
+<style>body{background:#0b0d14;color:#e0e0e0;font-family:Arial,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center;padding:16px}a{color:#00e5ff}</style>
 <script>
-(function(){
-  var $ = function(id){ return document.getElementById(id); };
-  var modoCriar = false;
-
-  function mostrar(){
-    var s = VigiaAuth.sessao();
-    $('tela-login').hidden = !!s;
-    $('tela-hub').hidden = !s;
-    if (s) $('quem').textContent = s.email;
-    if (!s) setTimeout(function(){ $('email').focus(); }, 50);
-  }
-  function setModo(criar){
-    modoCriar = criar;
-    $('titulo-form').textContent = criar ? 'CRIAR CONTA' : 'ENTRAR';
-    $('btn-submit').textContent = criar ? 'CRIAR CONTA' : 'ENTRAR';
-    $('alt-txt').textContent = criar ? 'Já tem conta?' : 'Não tem conta?';
-    $('alternar').textContent = criar ? 'Entrar' : 'Criar conta';
-    $('campo-conf').hidden = !criar;
-    $('esqueci').hidden = $('sep-esq').hidden = criar || !VigiaAuth.nuvemConfigurada();
-    $('senha').autocomplete = criar ? 'new-password' : 'current-password';
-    $('erro').textContent = ''; $('info').textContent = '';
-  }
-  function seguir(){
-    $('senha').value = $('senha2').value = '';
-    if (new URLSearchParams(location.search).get('volta') === 'energy') { location.href = 'energy/'; return; }
-    mostrar();
-  }
-  function ocupado(sim){ ['btn-submit','btn-google','alternar','esqueci'].forEach(function(id){ $(id).disabled = sim; }); }
-  async function nuvemOuNull(){ try { return await VigiaAuth.nuvem(); } catch (e) { return null; } }
-
-  $('alternar').onclick = function(){ setModo(!modoCriar); };
-  $('sair').onclick = async function(){ await VigiaAuth.sair(); setModo(false); mostrar(); };
-
-  /* Entrar: Firebase primeiro. Sem internet → senha guardada neste aparelho.
-   * Conta antiga só local (v1–v2.5) → cria a conta na nuvem com a mesma senha. */
-  async function entrar(email, senha){
-    var n = await nuvemOuNull();
-    if (!n) { await VigiaAuth.entrarLocal(email, senha); return 'offline'; }
-    var u, migrou = false;
-    try { u = await n.entrar(email, senha); }
-    catch (e) {
-      if (e.code === 'auth/network-request-failed') { await VigiaAuth.entrarLocal(email, senha); return 'offline'; }
-      if (n.credencialInvalida(e) && await VigiaAuth.verificarLocal(email, senha)) {
-        try { u = await n.criarConta(email, senha); migrou = true; }
-        catch (e2) {
-          if (e2.code === 'auth/email-already-in-use')
-            throw new Error('Este e-mail já tem conta na nuvem do Vigia Energy com outra senha. Use aquela senha ou "Esqueci minha senha".');
-          throw new Error(n.mensagem(e2));
-        }
-      } else throw new Error(n.mensagem(e));
-    }
-    await VigiaAuth.lembrar(email, senha);
-    await VigiaAuth.abrirSessao(u.email || email, u.uid);
-    return migrou ? 'migrou' : 'ok';
-  }
-  async function criar(email, senha){
-    if (!VigiaAuth.nuvemConfigurada()) { await VigiaAuth.criarContaLocal(email, senha); return; }
-    var n = await nuvemOuNull();
-    if (!n) throw new Error('Criar conta precisa de internet.');
-    try { var u = await n.criarConta(email, senha); }
-    catch (e) { throw new Error(n.mensagem(e)); }
-    await VigiaAuth.lembrar(email, senha);
-    await VigiaAuth.abrirSessao(u.email || email, u.uid);
-  }
-
-  $('f-login').onsubmit = async function(ev){
-    ev.preventDefault();
-    var erro = $('erro'); erro.textContent = ''; $('info').textContent = '';
-    if (!VigiaAuth.disponivel()) { erro.textContent = 'Navegador sem suporte a criptografia (abra via HTTPS).'; return; }
-    var email = VigiaAuth.normEmail($('email').value), senha = $('senha').value;
-    if (senha.length < 6) { erro.textContent = 'A senha precisa ter ao menos 6 caracteres.'; return; }
-    ocupado(true);
-    try {
-      if (modoCriar) {
-        if (senha !== $('senha2').value) throw new Error('As senhas não conferem.');
-        await criar(email, senha);
-      } else {
-        var r = await entrar(email, senha);
-        if (r === 'offline') sessionStorage.setItem('ve_aviso', 'Entrou sem internet: os dados sincronizam quando você entrar online.');
-        if (r === 'migrou') sessionStorage.setItem('ve_aviso', 'Sua conta deste aparelho agora também está na nuvem.');
-      }
-      seguir();
-    } catch (e) { erro.textContent = e.message; }
-    finally { ocupado(false); }
-  };
-
-  $('btn-google').onclick = async function(){
-    $('erro').textContent = ''; ocupado(true);
-    try {
-      var n = await nuvemOuNull();
-      if (!n) throw new Error('Login com Google precisa de internet.');
-      var u = await n.entrarGoogle();          // null = foi para o redirect
-      if (u) { await VigiaAuth.abrirSessao(u.email, u.uid); seguir(); }
-    } catch (e) { $('erro').textContent = e.message && /auth\//.test(e.code || '') ? (await VigiaAuth.nuvem()).mensagem(e) : e.message; }
-    finally { ocupado(false); }
-  };
-
-  $('esqueci').onclick = async function(){
-    $('erro').textContent = ''; $('info').textContent = '';
-    var email = VigiaAuth.normEmail($('email').value);
-    if (!email) { $('erro').textContent = 'Digite seu e-mail acima e toque de novo em "Esqueci minha senha".'; $('email').focus(); return; }
-    var n = await nuvemOuNull();
-    if (!n) { $('erro').textContent = 'Precisa de internet para redefinir a senha.'; return; }
-    try { await n.redefinirSenha(email); $('info').textContent = 'Se houver conta para ' + email + ', enviamos um e-mail para redefinir a senha.'; }
-    catch (e) { $('erro').textContent = n.mensagem(e); }
-  };
-
-  $('versao').textContent = 'VIGIA ENERGY v' + (self.VE_VERSAO || '?');
-  if (!VigiaAuth.nuvemConfigurada()) {   // modo local: sem Google nem redefinição de senha
-    document.querySelector('.ou').hidden = true;
-    $('btn-google').hidden = $('esqueci').hidden = $('sep-esq').hidden = true;
-    document.querySelector('.aviso').textContent = 'Conta salva neste aparelho. Faça backup em Config → Backup. A sincronização na nuvem será ativada em breve.';
-  }
-  mostrar();
-
-  // volta do login Google por redirect, ou sessão do Firebase já lembrada neste aparelho
-  if (!VigiaAuth.sessao() && VigiaAuth.nuvemConfigurada()) {
-    nuvemOuNull().then(async function(n){
-      if (!n) return;
-      try {
-        var u = await n.resultadoRedirect() || await n.usuarioAtual();
-        if (u && u.email && !VigiaAuth.sessao()) { await VigiaAuth.abrirSessao(u.email, u.uid); seguir(); }
-      } catch (e) { $('erro').textContent = n.mensagem(e); }
-    });
-  }
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function(){});
-  }
+/* Endereço antigo do Vigia Energy. O app agora mora em https://mpteixeirarj-glit.github.io/energy/
+   Tira o service worker velho deste endereço (senão ele continuaria servindo a versão antiga)
+   e segue para o novo, mantendo ?parâmetros e #âncora. Os dados ficam no aparelho:
+   o endereço (origem) é o mesmo, então o app novo os encontra. */
+(function () {
+  var destino = '/energy/' + location.search + location.hash;
+  var base = location.pathname.replace(/[^/]*$/, '');
+  var feito = function () { location.replace(destino); };
+  if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then(function (rs) {
+      return Promise.all(rs.filter(function (r) { return new URL(r.scope).pathname.indexOf('/Vigia-energy-/') === 0; })
+        .map(function (r) { return r.unregister(); }));
+    }).then(feito, feito);
+    setTimeout(feito, 1500);
+  } else feito();
 })();
 </script>
-<script>
-/* Ao voltar ao hub (botão HUB de outro Vigia ou "voltar" do navegador) o logo do Financeiro toca de novo. */
-window.addEventListener('pageshow', function () {
-  var v = document.getElementById('fin-logo');
-  if (v && v.play) { try { v.currentTime = 0; } catch (e) {} var p = v.play(); if (p && p.catch) p.catch(function () {}); }
-});
-</script>
-</body>
+</head>
+<body><p>O Vigia Energy mudou para<br><a href="/energy/">mpteixeirarj-glit.github.io/energy/</a></p></body>
 </html>
