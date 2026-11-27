@@ -1,10 +1,13 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.12.1';
+self.VE_VERSAO = '2.12.2';
 self.VE_NOVIDADES = [
-  { v: '2.12.1', itens: [
+  { v: '2.12.2', itens: [
     'Hub: o Auto-Vigia passa a se chamar Vigia Auto, no padrão dos apps Vigia'
+  ] },
+  { v: '2.12.1', itens: [
+    'Correção: letras maiúsculas acentuadas na fonte pixel apareciam como minúsculas ("INıCIO", "CALENDáRIO")'
   ] },
   { v: '2.12.0', itens: [
     'Impostos pelas NF3e reais da Light/RJ: PIS 0,97% + COFINS 4,45%; ICMS 18% até 220 kWh, 20% até 300, 24% acima',
