@@ -2,10 +2,10 @@
  * Navegação: network-first (pega versão nova quando há rede, cai no cache offline).
  * Assets: cache-first. Só respostas same-origin `basic` são guardadas.
  * A CADA atualização: suba VERSAO aqui E VE_VERSAO em version.js (devem ser iguais). */
-var VERSAO = 've-2.12.2';
+var VERSAO = 've-2.12.3';
 var ARQUIVOS = [
   './', 'index.html', 'common.css', 'firebase-config.js', 'auth.js', 'nuvem.js', 'version.js', 'manifest.json',
-  'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'fonts/vigia-pixel.woff2',
+  'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'fonts/vigia-pixel.woff2', 'hub/fin-logo.png',
   'energy/', 'energy/index.html', 'energy/app.js'
 ];
 
@@ -29,7 +29,7 @@ function garantirPrecache() {
 }
 
 function guardar(req, res) {
-  if (res && res.ok && res.type === 'basic') {
+  if (res && res.status === 200 && res.type === 'basic') {
     var copia = res.clone();
     caches.open(VERSAO).then(function (c) { c.put(req, copia); });
   }
@@ -39,6 +39,8 @@ function guardar(req, res) {
 self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  // Vídeo pede pedaços (Range → 206): vai direto à rede; sem internet, fica o pôster.
+  if (req.headers.has('range') || /\.mp4$/.test(new URL(req.url).pathname)) return;
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).then(function (r) { e.waitUntil(garantirPrecache()); return guardar(req, r); }).catch(function () {
       return caches.match(req, { ignoreSearch: true }).then(function (r) { return r || caches.match('index.html'); });

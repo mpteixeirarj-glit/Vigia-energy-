@@ -36,6 +36,10 @@
   .vcard .t{font-family:var(--pixel); font-size:11px; color:var(--cor); line-height:1.6}
   .vcard .d{font-size:12px; color:var(--dim); margin-top:4px}
   .vcard .seta{margin-left:auto; font-family:var(--pixel); color:var(--cor)}
+  /* Financeiro: o logo animado do próprio app (o mesmo vídeo da página de apresentação
+     dele, recortado e reduzido para 27 KB). Toca uma vez e para no escudo. */
+  .vcard .ico-video{overflow:hidden; padding:0}
+  .vcard .ico-video video{width:100%; height:100%; object-fit:cover; display:block}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -95,7 +99,7 @@
       <span class="ico">⚡</span><span><div class="t">VIGIA ENERGY</div><div class="d">Medidor, aparelhos e vilões da conta de luz</div></span><span class="seta">›</span>
     </a>
     <a class="vcard" href="https://mpteixeirarj-glit.github.io/vigia/" style="--cor:var(--amarelo)">
-      <span class="ico">💰</span><span><div class="t">VIGIA FINANCEIRO</div><div class="d">Requer login próprio</div></span><span class="seta">›</span>
+      <span class="ico ico-video"><video id="fin-logo" src="hub/fin-logo.mp4" poster="hub/fin-logo.png" autoplay muted playsinline preload="auto" aria-hidden="true"></video></span><span><div class="t">VIGIA FINANCEIRO</div><div class="d">Requer login próprio</div></span><span class="seta">›</span>
     </a>
     <a class="vcard" href="https://mpteixeirarj-glit.github.io/AUTO-VIGIA-/" style="--cor:#ff8a3d">
       <span class="ico">🚗</span><span><div class="t">VIGIA AUTO</div><div class="d">Manutenção do veículo</div></span><span class="seta">›</span>
@@ -237,6 +241,13 @@
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(function(){});
   }
 })();
+</script>
+<script>
+/* Ao voltar ao hub (botão HUB de outro Vigia ou "voltar" do navegador) o logo do Financeiro toca de novo. */
+window.addEventListener('pageshow', function () {
+  var v = document.getElementById('fin-logo');
+  if (v && v.play) { try { v.currentTime = 0; } catch (e) {} var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+});
 </script>
 </body>
 </html>

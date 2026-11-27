@@ -1,8 +1,11 @@
 /* Versão do Vigia Energy — fonte única exibida no app.
  * A CADA atualização: suba VE_VERSAO aqui E a constante VERSAO em sw.js
  * (o navegador só detecta service worker novo se o sw.js mudar). */
-self.VE_VERSAO = '2.12.2';
+self.VE_VERSAO = '2.12.3';
 self.VE_NOVIDADES = [
+  { v: '2.12.3', itens: [
+    'Hub: o Vigia Financeiro aparece com o logo animado dele (escudo com olho), no lugar do 💰'
+  ] },
   { v: '2.12.2', itens: [
     'Hub: o Auto-Vigia passa a se chamar Vigia Auto, no padrão dos apps Vigia'
   ] },
