@@ -1,6 +1,6 @@
 # Vigia Energy ⚡
 
-Versão atual: **2.12.3** (exibida no app: topo e ⚙️ → Configurações → Sobre).
+Versão atual: **2.12.4** (exibida no app: topo e ⚙️ → Configurações → Sobre).
 
 PWA offline-first para controle de consumo de energia elétrica residencial. HTML/CSS/JS puro, sem frameworks, sem backend.
 
